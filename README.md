@@ -41,6 +41,7 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 ### 🌐 WebSocket 连接池
 - 服务端维护最多 **10 个** 并发游戏 WS, **500ms** 连接间隔
 - 自动重连、心跳保活、消息队列、Promise 响应匹配
+- **空闲自动断连**: 无 SSE 订阅且无任务运行超过 5 分钟自动断开 (可配)
 - 浏览器通过 `POST /api/tokens/:id/command` 间接发送指令
 
 ### 🔄 实时 SSE 推送
@@ -138,8 +139,7 @@ xyzw_web_helper-main/
 │   │   ├── useSseStream.ts     SSE 订阅
 │   │   └── useTheme.js         主题切换
 │   ├── stores/
-│   │   ├── tokens.ts           主 store (Pinia)
-│   │   └── changelogStore.js   UI 状态
+│   │   └── tokens.ts           主 store (Pinia)
 │   ├── views/                  TokenImport / Dashboard / Login ...
 │   ├── components/             UI 组件
 │   ├── router/index.js         路由 + auth 守卫
@@ -178,7 +178,7 @@ xyzw_web_helper-main/
 
 ### 2. Token 导入
 
-进入 `/tokens`, 选择导入方式:
+登录后默认进入 `/admin/tokens` (Token 管理), 选择导入方式:
 
 | 方式 | 流程 |
 |---|---|
@@ -192,8 +192,9 @@ Token 入库前会自动通过 Hortor `authuser` 转换为会话凭据, AES-256-
 ### 3. 连接 & 命令
 
 - 列表页可对每个 Token 单独 **连接 / 断开**
-- **消息测试** 页: 选择 Token → 输入 cmd/params → 直接发送游戏指令, 返回 Promise 结果
+- 游戏指令通过 `POST /api/tokens/:id/command` 发送, 返回 Promise 结果
 - WebSocket 实际由服务端维护, 浏览器只看 SSE 推送的状态
+- **游戏功能 / 批量日常** 需要至少导入一个 Token 才能进入; 无 Token 时会重定向回 Token 管理页
 
 ### 4. 任务运行
 
@@ -240,6 +241,7 @@ const { lastEvent, events, connected } = useSseStream({
 | `XYZW_MAX_CONN` | `10` | WS 并发上限 |
 | `XYZW_CONN_INTERVAL_MS` | `500` | 连接间隔 |
 | `XYZW_JWT_TTL` | `7d` | JWT 有效期 |
+| `XYZW_IDLE_TIMEOUT_MS` | `300000` | 空闲自动断连时长 (0=关闭) |
 | `XYZW_SESSION_PASSPHRASE` | (内置默认) | 解 session key 的 passphrase, 部署务必替换 |
 
 完整文档见 [server/README.md](./server/README.md).
@@ -258,6 +260,13 @@ pnpm test
 ---
 
 ## 📜 更新日志
+
+### v3.1.0 (UI 精简)
+- 🏠 **登录后默认进入 Token 管理** (`/admin/tokens`), 作为首页 tab
+- 🔒 **游戏功能 / 批量日常需 Token 才能进入**, 无 Token 时重定向到 Token 管理
+- 🗑️ **移除首页 / 注册页 / 消息测试 / WebSocket 测试**, 登录页去掉社交登录入口
+- 🔌 **空闲自动断连**: 无订阅且无任务时超过 `XYZW_IDLE_TIMEOUT_MS` 自动断开
+- 🧹 **清理死代码**: 删除前端遗留 wsAgent / xyzwWebSocket / randomSeed / gameCommands 等 24 个文件
 
 ### v3.0.0 (本次重构)
 - 🏗️ **架构重构**: 浏览器-only → Node 后端 + Vue 瘦前端

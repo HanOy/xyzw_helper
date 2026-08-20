@@ -33,6 +33,9 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 | Token 加密 | AES-256-GCM | 主密钥从启动密码派生, IV 随机 |
 | 任务队列 | p-queue (前端已有) | 服务端用同款 |
 | 日志 | pino | 写入文件 + SSE 推前端 |
+| 登录后默认落地页 | `/admin/tokens` | Token 管理即首页 tab |
+| 游戏功能 / 批量日常 | 需要 Token 才能进入 | 无 Token 时重定向到 `/admin/tokens` |
+| 空闲自动断连 | 默认 5 分钟 | `XYZW_IDLE_TIMEOUT_MS` 可配, 0=关闭; 有 SSE 订阅或任务运行时保持连接 |
 | 旧 Python bin 服务 | 删除 | 用户自建 URL 端点 |
 | Cloudflare worker.js | 删除 | |
 | src/xyzw/ (1.7M + 2.3M) | 删除 | 是 cocos2d-js-min.js 和游戏入口, 死代码 |
@@ -92,25 +95,28 @@ server/src/token/TokenService.ts     # Token 业务 (原 src/stores/tokenStore.t
 server/src/tasks/DailyTaskRunner.ts  # 日常任务 (原 src/utils/dailyTaskRunner.js)
 server/src/tasks/batch/*.ts          # 批量任务 (原 src/utils/batch/*)
 
-src/api/index.js                     # 真实 REST 客户端
+src/api/index.ts                     # 真实 REST 客户端
 src/composables/useSseStream.ts      # SSE 订阅封装
-src/stores/changelogStore.js         # 前端 UI 状态, 保留
 ```
 
 ## 前端目录现状 (改造后)
 
 ```
 src/
-├── api/index.js                     # ★ 改: 真实 REST
+├── api/index.ts                     # ★ 改: 真实 REST
 ├── composables/
 │   ├── useSseStream.ts              # ★ 新
 │   └── useTheme.js                  # 保留
 ├── stores/
-│   └── changelogStore.js            # 仅保留 UI 状态
-├── views/                           # 改: 所有 gameData 改 SSE 订阅
-├── components/                      # 改: 删 wsAgent/xyzwWebSocket 引用
-├── router/index.js                  # 改: requiresToken 走 /api/auth/me
-├── utils/                           # 仅留前端工具 (imageExport 等)
+│   ├── tokens.ts                    # 主 store (Pinia)
+│   ├── tokenStore.ts                # 兼容包装 (tokenStore = tokens)
+│   ├── auth.js                      # 登录态
+│   ├── gameRoles.js / legionWarStore.js / localTokenManager.js
+├── views/                           # 改: 所有 gameData 改 SSE 订阅; 无 Home/Register/Changelog/GameRoles
+│   └── TokenImport/                 # Token 管理 (index + bin/manual/singlebin/url/wxqrcode)
+├── components/                      # 改: 删 wsAgent/xyzwWebSocket/消息测试/WebSocket测试
+├── router/index.js                  # 改: requiresToken 走 /api/auth/me; 守卫拦截 game-features/batch-daily-tasks 无 token
+├── utils/                           # 仅留前端工具 (imageExport 等); 删 bonProtocol 外的前端游戏逻辑
 └── locales/
 ```
 
@@ -181,6 +187,7 @@ type SseEvent =
 - WS 连接池: max 10 并发, 500ms 间隔 (可配置)
 - 任务运行: 同 token 串行, 跨 token 受 WS 池约束
 - 任务取消: 写 `task_runs.cancelled_at`, runner 主循环检查
+- 空闲自动断连: Web 有 SSE 订阅保持连接; 无订阅/无任务且超过 `XYZW_IDLE_TIMEOUT_MS` (默认 5 分钟, 0=关闭) 自动断开; 任务结束后保持连接等待空闲超时
 
 ## 代码风格
 
