@@ -56,7 +56,7 @@ COPY --from=server-builder /app/server/package.json /app/server/package.json
 COPY --from=server-builder /app/server/node_modules /app/server/node_modules
 
 WORKDIR /app/server
-RUN mkdir -p /app/server/data && chown -R node:node /app
+RUN mkdir -p /app/server/data && chown -R node:node /app && chmod -R a+rX /app
 USER node
 
 EXPOSE 8787
