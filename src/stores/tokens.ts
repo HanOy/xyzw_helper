@@ -1,8 +1,20 @@
 import { computed, ref } from 'vue';
 import { defineStore } from 'pinia';
+import { useLocalStorage } from '@vueuse/core';
 import { api, setStoredToken, getStoredToken, type ApiToken } from '../api';
 import { useSseStream } from '../composables/useSseStream';
 import { isInCurrentWeek } from '../utils/base';
+
+export interface TokenGroup {
+  id: string;
+  name: string;
+  color: string;
+  tokenIds: string[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const tokenGroups = useLocalStorage<TokenGroup[]>('tokenGroups', []);
 
 export const useTokensStore = defineStore('tokens', () => {
   const tokens = ref<ApiToken[]>([]);
@@ -98,6 +110,69 @@ export const useTokensStore = defineStore('tokens', () => {
 
   function getWebSocketStatus(id: string): string {
     return connectionStatus.value[id] ?? 'disconnected';
+  }
+
+  function createTokenGroup(name: string, color = '#1677ff'): TokenGroup {
+    const group: TokenGroup = {
+      id: 'group_' + Date.now() + Math.random().toString(36).slice(2),
+      name,
+      color,
+      tokenIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    tokenGroups.value.push(group);
+    return group;
+  }
+
+  function deleteTokenGroup(groupId: string): void {
+    const index = tokenGroups.value.findIndex((g) => g.id === groupId);
+    if (index !== -1) tokenGroups.value.splice(index, 1);
+  }
+
+  function updateTokenGroup(groupId: string, updates: Partial<TokenGroup>): void {
+    const group = tokenGroups.value.find((g) => g.id === groupId);
+    if (group) Object.assign(group, updates, { updatedAt: new Date().toISOString() });
+  }
+
+  function addTokenToGroup(groupId: string, tokenId: string): void {
+    const group = tokenGroups.value.find((g) => g.id === groupId);
+    if (group && !group.tokenIds.includes(tokenId)) {
+      group.tokenIds.push(tokenId);
+      group.updatedAt = new Date().toISOString();
+    }
+  }
+
+  function removeTokenFromGroup(groupId: string, tokenId: string): void {
+    const group = tokenGroups.value.find((g) => g.id === groupId);
+    if (group) {
+      const index = group.tokenIds.indexOf(tokenId);
+      if (index !== -1) {
+        group.tokenIds.splice(index, 1);
+        group.updatedAt = new Date().toISOString();
+      }
+    }
+  }
+
+  function getTokenGroups(tokenId: string): TokenGroup[] {
+    return tokenGroups.value.filter((g) => g.tokenIds.includes(tokenId));
+  }
+
+  function getGroupTokenIds(groupId: string): string[] {
+    const group = tokenGroups.value.find((g) => g.id === groupId);
+    return group ? group.tokenIds : [];
+  }
+
+  function getValidGroupTokenIds(groupId: string): string[] {
+    const valid = new Set(tokens.value.map((t) => t.id));
+    return getGroupTokenIds(groupId).filter((id) => valid.has(id));
+  }
+
+  function cleanupInvalidTokens(): void {
+    const valid = new Set(tokens.value.map((t) => t.id));
+    tokenGroups.value.forEach((group) => {
+      group.tokenIds = group.tokenIds.filter((id) => valid.has(id));
+    });
   }
 
   function initTokenStore(): Promise<void> {
@@ -470,5 +545,15 @@ export const useTokensStore = defineStore('tokens', () => {
     sendGetRoleInfo,
     setBattleVersion,
     addToken,
+    tokenGroups,
+    createTokenGroup,
+    deleteTokenGroup,
+    updateTokenGroup,
+    addTokenToGroup,
+    removeTokenFromGroup,
+    getTokenGroups,
+    getGroupTokenIds,
+    getValidGroupTokenIds,
+    cleanupInvalidTokens,
   };
 });

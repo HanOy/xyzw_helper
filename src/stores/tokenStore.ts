@@ -1,5 +1,10 @@
 import { computed, ref } from 'vue';
-import { useTokensStore, type ApiToken } from './tokens';
+import {
+  useTokensStore,
+  tokenGroups,
+  type ApiToken,
+  type TokenGroup,
+} from './tokens';
 
 export const gameTokens = computed<ApiToken[]>(() => useTokensStore().tokens);
 export const hasTokens = computed(() => useTokensStore().hasTokens);
@@ -8,7 +13,7 @@ export const selectedTokenId = computed<string>({
   set: (v) => useTokensStore().setSelectedToken(v),
 });
 export const selectedToken = computed(() => useTokensStore().selectedToken);
-export const tokenGroups = ref<unknown[]>([]);
+export { tokenGroups };
 export { useTokensStore as useTokenStore };
 
-export type { ApiToken };
+export type { ApiToken, TokenGroup };
