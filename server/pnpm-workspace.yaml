@@ -1,0 +1,6 @@
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+  - "@parcel/watcher"
+nodeLinker: hoisted
+sideEffectsCache: true

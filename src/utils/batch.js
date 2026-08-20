@@ -1,0 +1,22 @@
+// Stub: batch 任务已迁移到服务端
+export const batchTasks = {};
+export const createTasksArena = () => ({});
+export const createTasksBottle = () => ({});
+export const createTasksCar = () => ({});
+export const createTasksDungeon = () => ({});
+export const createTasksFootball = () => ({});
+export const createTasksHangUp = () => ({});
+export const createTasksItem = () => ({});
+export const createTasksLegacy = () => ({});
+export const createTasksStore = () => ({});
+export const createTasksTower = () => ({});
+export const cronUtils = {};
+export const logUtils = {};
+export const carUtils = {};
+export const constants = {};
+export const availableTasks = [];
+export const formationOptions = [];
+export const bossTimesOptions = [];
+export const CarresearchItem = [];
+export const FISH_TARGET = {};
+export const merchantConfig = {};

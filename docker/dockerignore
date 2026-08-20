@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+dist
+**/dist
+data
+**/data
+.git
+**/.git
+.vscode
+**/.vscode
+.DS_Store
+*.log
+**/*.log
+.turbo
+**/.turbo
+test/queuu.js
+test/see.js

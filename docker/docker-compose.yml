@@ -1,0 +1,26 @@
+services:
+  xyzw:
+    build:
+      context: ..
+      dockerfile: docker/dockerfile
+    image: xyzw-web-helper:latest
+    container_name: xyzw
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./data:/app/server/data
+    environment:
+      - NODE_ENV=production
+      - HOST=0.0.0.0
+      - PORT=8787
+      - XYZW_BOOT_PASSWORD=${XYZW_BOOT_PASSWORD:-test123}
+      - XYZW_SESSION_PASSPHRASE=${XYZW_SESSION_PASSPHRASE:-change-me-on-deploy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    stdin_open: true
+    tty: true

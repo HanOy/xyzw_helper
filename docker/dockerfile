@@ -1,0 +1,64 @@
+# --- Stage 1: install frontend deps ---
+FROM node:20-bookworm-slim AS web-deps
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY package.json pnpm-lock.yaml* ./
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    pnpm install --frozen-lockfile
+
+# --- Stage 2: build frontend (only source files, no node_modules) ---
+FROM web-deps AS web-builder
+WORKDIR /app
+
+COPY index.html ./
+COPY public ./public
+COPY src ./src
+COPY vite.config.js tsconfig.json tsconfig.app.json tsconfig.node.json ./
+COPY uno.config.ts eslint.config.ts components.d.ts ./
+
+RUN pnpm run build
+
+# --- Stage 3: install server deps (clean) ---
+FROM node:20-bookworm-slim AS server-deps
+WORKDIR /app/server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY server/package.json server/pnpm-lock.yaml* ./
+COPY server/.npmrc ./.npmrc
+COPY server/pnpm-workspace.yaml ./pnpm-workspace.yaml
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    pnpm install --frozen-lockfile
+
+# --- Stage 4: build server (only source files) ---
+FROM server-deps AS server-builder
+WORKDIR /app/server
+COPY server/tsconfig.json ./tsconfig.json
+COPY server/src ./src
+RUN pnpm run build && \
+    pnpm prune --prod
+
+# --- Stage 5: runtime ---
+FROM node:20-bookworm-slim
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=8787
+ENV XYZW_STATIC_DIR=/app/web
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    corepack enable && corepack prepare pnpm@10.19.0 --activate
+
+COPY --from=web-builder /app/dist /app/web
+COPY --from=server-builder /app/server/dist /app/server/dist
+COPY --from=server-builder /app/server/package.json /app/server/package.json
+COPY --from=server-builder /app/server/node_modules /app/server/node_modules
+
+WORKDIR /app/server
+RUN mkdir -p /app/server/data && chown -R node:node /app
+USER node
+
+EXPOSE 8787
+
+CMD ["node", "dist/index.js"]
