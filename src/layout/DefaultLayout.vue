@@ -34,7 +34,11 @@
             </n-icon>
             <span>游戏功能</span>
           </router-link>
-          <router-link to="/tokens" class="nav-item" active-class="active">
+          <router-link
+            to="/admin/tokens"
+            class="nav-item"
+            active-class="active"
+          >
             <n-icon>
               <PersonCircle />
             </n-icon>
@@ -49,16 +53,6 @@
               <Layers />
             </n-icon>
             <span>批量日常</span>
-          </router-link>
-          <router-link
-            to="/admin/message-test"
-            class="nav-item"
-            active-class="active"
-          >
-            <n-icon>
-              <ChatbubbleEllipsesSharp />
-            </n-icon>
-            <span>消息测试</span>
           </router-link>
           <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
             <n-icon>
@@ -117,7 +111,7 @@
           <span>游戏功能</span>
         </router-link>
         <router-link
-          to="/tokens"
+          to="/admin/tokens"
           class="drawer-item"
           @click="isMobileMenuOpen = false"
         >
@@ -146,17 +140,7 @@
           </n-icon>
           <span>批量日常</span>
         </router-link>
-        <router-link
-          to="/admin/message-test"
-          class="drawer-item"
-          @click="isMobileMenuOpen = false"
-        >
-          <n-icon>
-            <ChatbubbleEllipsesSharp />
-          </n-icon>
-          <span>消息测试</span>
-        </router-link>
-          <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
+        <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
             <n-icon>
               <LockOpen />
             </n-icon>
@@ -193,8 +177,8 @@ import {
   Cube,
   Settings,
   ChevronDown,
-  ChatbubbleEllipsesSharp,
-  LockClosedSharp,LockOpen,
+  LockClosedSharp,
+  LockOpen,
   Menu,
   Layers,
 } from "@vicons/ionicons5";
@@ -223,7 +207,7 @@ const handleUserAction = async (key) => {
     case "logout":
       await tokenStore.clearAllTokens();
       message.success("已清除所有Token");
-      router.push("/tokens");
+      router.push("/admin/tokens");
       break;
   }
 };

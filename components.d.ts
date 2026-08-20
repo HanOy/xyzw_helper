@@ -50,7 +50,6 @@ declare module 'vue' {
     IdentityCard: typeof import('./src/components/Common/Common/IdentityCard.vue')['default']
     LegionWarMap: typeof import('./src/components/Club/LegionWarMap.vue')['default']
     LegionWarStatistics: typeof import('./src/components/Club/LegionWarStatistics.vue')['default']
-    MessageTester: typeof import('./src/components/Test/MessageTester.vue')['default']
     MonthlyTasksCard: typeof import('./src/components/cards/MonthlyTasksCard.vue')['default']
     MyCard: typeof import('./src/components/Common/Common/MyCard.vue')['default']
     PeachBattleRecords: typeof import('./src/components/Club/PeachBattleRecords.vue')['default']
@@ -75,7 +74,6 @@ declare module 'vue' {
     TopRankListPageCard: typeof import('./src/components/cards/TopRankListPageCard.vue')['default']
     TowerStatus: typeof import('./src/components/Tower/TowerStatus.vue')['default']
     Unlimitedlineup: typeof import('./src/components/cards/Unlimitedlineup.vue')['default']
-    WebSocketTester: typeof import('./src/components/Test/WebSocketTester.vue')['default']
     WeirdTowerStatus: typeof import('./src/components/Tower/WeirdTowerStatus.vue')['default']
   }
 }

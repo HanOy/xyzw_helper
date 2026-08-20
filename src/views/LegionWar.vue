@@ -667,7 +667,7 @@ function resizeAndRedraw(canvas) {
 const connectWebSocket = () => {
   if (!tokenStore.selectedToken) {
     message.warning("请先选择一个Token");
-    router.push("/tokens");
+    router.push("/admin/tokens");
     return;
   }
 

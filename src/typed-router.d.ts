@@ -24,7 +24,6 @@ declare module 'vue-router/auto-routes' {
     '/Dashboard': RouteRecordInfo<'/Dashboard', '/Dashboard', Record<never, never>, Record<never, never>>,
     '/GameFeatures': RouteRecordInfo<'/GameFeatures', '/GameFeatures', Record<never, never>, Record<never, never>>,
     '/GameRoles': RouteRecordInfo<'/GameRoles', '/GameRoles', Record<never, never>, Record<never, never>>,
-    '/Home': RouteRecordInfo<'/Home', '/Home', Record<never, never>, Record<never, never>>,
     '/LegionWar': RouteRecordInfo<'/LegionWar', '/LegionWar', Record<never, never>, Record<never, never>>,
     '/Login': RouteRecordInfo<'/Login', '/Login', Record<never, never>, Record<never, never>>,
     '/NotFound': RouteRecordInfo<'/NotFound', '/NotFound', Record<never, never>, Record<never, never>>,

@@ -65,7 +65,6 @@ import {
   Time,
   TrendingUp,
   Add,
-  Cloud,
 } from "@vicons/ionicons5";
 
 const router = useRouter();
@@ -107,13 +106,6 @@ const quickActions = ref([
     description: "批量执行任务",
     action: "batch-daily-tasks",
   },
-  {
-    id: 4,
-    icon: Cloud,
-    title: "WebSocket测试",
-    description: "测试WebSocket连接和游戏命令",
-    action: "websocket-test",
-  },
 ]);
 
 const handleManageTokens = () => {
@@ -125,7 +117,7 @@ const handleManageTokens = () => {
   */
 
   try {
-    router.push("/tokens");
+    router.push("/admin/tokens");
     // 降噪
   } catch (error) {
     console.error("❌ 导航失败:", error);
@@ -143,9 +135,6 @@ const handleQuickAction = (action) => {
       break;
     case "execute-tasks":
       router.push("/admin/game-features");
-      break;
-    case "websocket-test":
-      router.push("/websocket-test");
       break;
     case "open-settings":
       router.push("/admin/profile");
@@ -191,7 +180,7 @@ const formatTime = (timestamp) => {
 onMounted(async () => {
   // 确保有Token
   if (!tokenStore.hasTokens) {
-    router.push("/tokens");
+    router.push("/admin/tokens");
     return;
   }
 

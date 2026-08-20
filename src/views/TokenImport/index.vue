@@ -1584,7 +1584,7 @@ const handleUrlParams = async () => {
           }, 1500);
         } else {
           // 清除URL参数，避免重复处理
-          router.replace("/tokens");
+          router.replace("/admin/tokens");
         }
       } else {
         throw new Error(tokenResult?.message || "Token导入失败");
@@ -1593,7 +1593,7 @@ const handleUrlParams = async () => {
       console.error("URL参数处理失败:", error);
       message.error(`导入失败: ${error.message}`);
       // 清除URL参数
-      router.replace("/tokens");
+      router.replace("/admin/tokens");
     } finally {
       isImporting.value = false;
     }

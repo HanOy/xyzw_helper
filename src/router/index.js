@@ -7,29 +7,13 @@ const generatedRoutes = [];
 const my_routes = [
   {
     path: '/',
-    name: 'Home',
-    component: () => import('@/views/Home.vue'),
-    meta: { title: '首页' },
+    redirect: '/login',
   },
   {
     path: '/login',
     name: 'Login',
     component: () => import('@/views/Login.vue'),
     meta: { title: '登录' },
-  },
-  {
-    path: '/tokens',
-    name: 'TokenImport',
-    component: () => import('@/views/TokenImport/index.vue'),
-    meta: { title: 'Token管理' },
-    props: (route) => ({
-      token: route.query.token,
-      name: route.query.name,
-      server: route.query.server,
-      wsUrl: route.query.wsUrl,
-      api: route.query.api,
-      auto: route.query.auto === 'true',
-    }),
   },
   {
     name: 'DefaultLayout',
@@ -49,10 +33,18 @@ const my_routes = [
         meta: { title: '游戏功能', requiresToken: true },
       },
       {
-        path: 'message-test',
-        name: 'MessageTest',
-        component: () => import('@/components/Test/MessageTester.vue'),
-        meta: { title: '消息测试', requiresToken: true },
+        path: 'tokens',
+        name: 'TokenImport',
+        component: () => import('@/views/TokenImport/index.vue'),
+        meta: { title: 'Token管理', requiresToken: true },
+        props: (route) => ({
+          token: route.query.token,
+          name: route.query.name,
+          server: route.query.server,
+          wsUrl: route.query.wsUrl,
+          api: route.query.api,
+          auto: route.query.auto === 'true',
+        }),
       },
       {
         path: 'legion-war',
@@ -82,12 +74,9 @@ const my_routes = [
     ],
   },
   {
-    path: '/websocket-test',
-    name: 'WebSocketTest',
-    component: () => import('@/components/Test/WebSocketTester.vue'),
-    meta: { title: 'WebSocket测试', requiresToken: true },
+    path: '/game-roles',
+    redirect: '/admin/tokens',
   },
-  { path: '/game-roles', redirect: '/tokens' },
   ...generatedRoutes,
   {
     path: '/:pathMatch(.*)*',
@@ -106,7 +95,7 @@ const router = createRouter({
   },
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
   document.title = to.meta.title
     ? `${to.meta.title} - XYZW 游戏管理系统`
     : 'XYZW 游戏管理系统';
@@ -117,14 +106,19 @@ router.beforeEach((to, from, next) => {
     return;
   }
   if (to.name === 'Login' && hasAuth) {
-    next('/admin/dashboard');
+    next('/admin/tokens');
     return;
   }
 
   if (to.meta.requiresToken) {
     const store = useTokensStore();
-    if (!store.hasTokens && to.path !== '/tokens') {
-      store.refresh().catch(() => undefined);
+    if (!store.hasTokens) {
+      await store.refresh().catch(() => undefined);
+    }
+    const needsTokenPath = to.path === '/admin/game-features' || to.path === '/admin/batch-daily-tasks';
+    if (needsTokenPath && !store.hasTokens) {
+      next('/admin/tokens');
+      return;
     }
   }
   next();
