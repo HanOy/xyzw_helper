@@ -87,7 +87,6 @@ const my_routes = [
     component: () => import('@/components/Test/WebSocketTester.vue'),
     meta: { title: 'WebSocket测试', requiresToken: true },
   },
-  { path: '/register', redirect: '/login' },
   { path: '/game-roles', redirect: '/tokens' },
   ...generatedRoutes,
   {

@@ -43,9 +43,14 @@ export async function runBatchDailyTasks(opts: BatchDailyRequest): Promise<strin
     try {
       const meta = tokenService.toConnectionMeta(tokenId);
       if (!meta) throw new Error('token 不存在');
-      await connectionPool.ensureConnection(meta);
-      const subRunId = await runDailyTasks(tokenId, opts.settings as any);
-      taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
+      connectionPool.beginTask(tokenId);
+      try {
+        await connectionPool.ensureConnection(meta);
+        const subRunId = await runDailyTasks(tokenId, opts.settings as any);
+        taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
+      } finally {
+        connectionPool.endTask(tokenId);
+      }
     } catch (err) {
       taskLog({ runId: batchId, tokenId, level: 'error', message: `${tokenName} 失败: ${(err as Error).message}` });
     }

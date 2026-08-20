@@ -41,6 +41,7 @@ class SseHub {
         };
         clientRef.current = client;
         this.clients.set(id, client);
+        bus.emit('sse.attach', { type: 'sse.attach', tokenIds: client.tokenIds ? Array.from(client.tokenIds) : null });
 
         writeEvent(controller, {
           type: 'task.log',
@@ -82,6 +83,7 @@ class SseHub {
           bus.off('status', onStatus);
           bus.off('task', onTask);
           this.clients.delete(id);
+          bus.emit('sse.detach', { type: 'sse.detach', tokenIds: client.tokenIds ? Array.from(client.tokenIds) : null });
         };
       },
       cancel: () => {

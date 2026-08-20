@@ -59,45 +59,6 @@
               登录
             </n-button>
           </n-form>
-
-          <n-divider>
-            <span class="divider-text">其他登录方式</span>
-          </n-divider>
-
-          <div class="social-login">
-            <n-button
-              size="large"
-              class="social-button"
-              @click="handleSocialLogin('qq')"
-            >
-              <template #icon>
-                <n-icon>
-                  <PersonCircle />
-                </n-icon>
-              </template>
-              QQ登录
-            </n-button>
-
-            <n-button
-              size="large"
-              class="social-button"
-              @click="handleSocialLogin('wechat')"
-            >
-              <template #icon>
-                <n-icon>
-                  <PersonCircle />
-                </n-icon>
-              </template>
-              微信登录
-            </n-button>
-          </div>
-
-          <div class="register-prompt">
-            <span>还没有账户？</span>
-            <n-button text type="primary" @click="router.push('/register')">
-              立即注册
-            </n-button>
-          </div>
         </div>
       </div>
 
@@ -218,11 +179,6 @@ const handleLogin = async () => {
   }
 };
 
-// 处理社交登录
-const handleSocialLogin = (provider) => {
-  message.info(`${provider === "qq" ? "QQ" : "微信"}登录功能开发中...`);
-};
-
 onMounted(() => {
   // 如果已经登录，直接跳转
   if (authStore.isAuthenticated) {
@@ -324,36 +280,6 @@ onMounted(() => {
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   margin-bottom: var(--spacing-lg);
-}
-
-.divider-text {
-  color: var(--text-tertiary);
-  font-size: var(--font-size-sm);
-}
-
-.social-login {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
-}
-
-.social-button {
-  height: 44px;
-  border: 1px solid var(--border-light);
-
-  &:hover {
-    border-color: var(--primary-color);
-  }
-}
-
-.register-prompt {
-  text-align: center;
-  color: var(--text-secondary);
-
-  span {
-    margin-right: var(--spacing-sm);
-  }
 }
 
 // 功能展示区域
@@ -509,10 +435,6 @@ onMounted(() => {
 
   .brand-title {
     font-size: var(--font-size-xl);
-  }
-
-  .social-login {
-    grid-template-columns: 1fr;
   }
 
   .feature-item {

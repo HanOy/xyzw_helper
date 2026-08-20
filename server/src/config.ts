@@ -35,6 +35,7 @@ export interface AppConfig {
   defaultGameWsUrl: string;
   maxConcurrentConnections: number;
   connectionIntervalMs: number;
+  idleTimeoutMs: number;
   jwtExpiresIn: string;
   isDev: boolean;
   staticDir: string | null;
@@ -64,6 +65,7 @@ export function loadConfig(): AppConfig {
       process.env.XYZW_WS_URL ?? 'wss://xxz-xyzw.hortorgames.com/agent',
     maxConcurrentConnections: Number(process.env.XYZW_MAX_CONN ?? 10),
     connectionIntervalMs: Number(process.env.XYZW_CONN_INTERVAL_MS ?? 500),
+    idleTimeoutMs: Number(process.env.XYZW_IDLE_TIMEOUT_MS ?? 5 * 60 * 1000),
     jwtExpiresIn: process.env.XYZW_JWT_TTL ?? '7d',
     isDev: process.env.NODE_ENV !== 'production',
     staticDir,
