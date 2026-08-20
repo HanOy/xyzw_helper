@@ -21,10 +21,8 @@ const my_routes = [
     component: () => import('@/layout/DefaultLayout.vue'),
     children: [
       {
-        path: 'dashboard',
-        name: 'Dashboard',
-        component: () => import('@/views/Dashboard.vue'),
-        meta: { title: '控制台', requiresToken: true },
+        path: '',
+        redirect: '/admin/tokens',
       },
       {
         path: 'game-features',

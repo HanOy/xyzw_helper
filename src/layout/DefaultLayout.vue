@@ -15,16 +15,6 @@
 
         <div class="nav-menu">
           <router-link
-            to="/admin/dashboard"
-            class="nav-item"
-            active-class="active"
-          >
-            <n-icon>
-              <Home />
-            </n-icon>
-            <span>首页</span>
-          </router-link>
-          <router-link
             to="/admin/game-features"
             class="nav-item"
             active-class="active"
@@ -90,16 +80,6 @@
       style="width: 260px"
     >
       <div class="drawer-menu">
-        <router-link
-          to="/admin/dashboard"
-          class="drawer-item"
-          @click="isMobileMenuOpen = false"
-        >
-          <n-icon>
-            <Home />
-          </n-icon>
-          <span>首页</span>
-        </router-link>
         <router-link
           to="/admin/game-features"
           class="drawer-item"
@@ -172,7 +152,6 @@ import {
 } from "@/stores/tokenStore";
 import ThemeToggle from "@/components/Common/ThemeToggle.vue";
 import {
-  Home,
   PersonCircle,
   Cube,
   Settings,

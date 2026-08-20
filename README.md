@@ -140,7 +140,7 @@ xyzw_web_helper-main/
 │   │   └── useTheme.js         主题切换
 │   ├── stores/
 │   │   └── tokens.ts           主 store (Pinia)
-│   ├── views/                  TokenImport / Dashboard / Login ...
+│   ├── views/                  TokenImport / Login / GameFeatures ...
 │   ├── components/             UI 组件
 │   ├── router/index.js         路由 + auth 守卫
 │   └── utils/                  前端辅助 (与游戏无关)
