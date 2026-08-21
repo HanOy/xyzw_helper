@@ -1503,13 +1503,13 @@ const goToDashboard = () => {
   router.push("/admin/batch-daily-tasks");
 };
 
-// 开始任务管理 - 直接跳转到控制台
+// 开始任务管理 - 跳转到该 token 的游戏功能控制台
 const startTaskManagement = (token) => {
   // 选择token
   tokenStore.selectToken(token.id);
-  // 直接跳转到 Token 管理，不等待连接
-  message.success(`正在进入 ${token.name} 的管理页`);
-  router.push("/admin/tokens");
+  // 跳转到该 token 的控制台(游戏功能页)，不等待连接
+  message.success(`正在进入 ${token.name} 的控制台`);
+  router.push("/admin/game-features");
 };
 
 // URL参数处理函数
@@ -1578,9 +1578,9 @@ const handleUrlParams = async () => {
         // 如果auto=true，自动选择并跳转到控制台
         if (props.auto && tokenResult.token) {
           tokenStore.selectToken(tokenResult.token.id);
-          message.success("正在跳转到 Token 管理...");
+          message.success("正在跳转到控制台...");
           setTimeout(() => {
-            router.push("/admin/tokens");
+            router.push("/admin/game-features");
           }, 1500);
         } else {
           // 清除URL参数，避免重复处理
