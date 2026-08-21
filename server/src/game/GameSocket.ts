@@ -72,8 +72,10 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private ack = 0;
   private seq = 0;
   private reconnectAttempts = 0;
-  private isReconnecting = false;
+  private reconnectTimer: NodeJS.Timeout | null = null;
   private intentionalClose = false;
+  /** 有活跃任务或订阅者时为真：掉线后持续重连(不受 maxReconnectAttempts 上限约束) */
+  persistent = false;
 
   private sendQueue: QueueTask[] = [];
   private sendTimer: NodeJS.Timeout | null = null;
@@ -104,12 +106,19 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       this.intentionalClose = false;
-      if (!this.isReconnecting) this.reconnectAttempts = 0;
       if (this.status === 'connected' || this.status === 'connecting') {
         resolve();
         return;
       }
-      this.intentionalClose = false;
+      // 关闭可能残留的旧 socket，确保服务端释放该 token 的连接槽
+      if (this.ws) {
+        try {
+          this.ws.close();
+        } catch {
+          // ignore
+        }
+        this.ws = null;
+      }
       this.setStatus('connecting');
       try {
         this.ws = new WebSocket(this.url, {
@@ -190,6 +199,10 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
   disconnect(): void {
     this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       try {
         this.ws.close();
@@ -361,8 +374,12 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   }
 
   private scheduleReconnect(): void {
-    if (this.isReconnecting || this.intentionalClose) return;
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+    if (this.intentionalClose) return;
+    // error+close 可能连续触发，用 reconnectTimer 去重，避免重复排程
+    if (this.reconnectTimer) return;
+    // 空闲连接才受重连次数上限约束(避免无限刷日志)；
+    // 有活跃任务/订阅者时必须持续重试，否则正在跑的批量任务会卡死。
+    if (!this.persistent && this.reconnectAttempts >= this.maxReconnectAttempts) {
       wsLog.warn(
         { attempts: this.reconnectAttempts },
         '重连次数已耗尽，停止自动重连（请检查连接/鉴权配置或手动重连）',
@@ -370,23 +387,22 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       this.setStatus('error', `重连失败 ${this.reconnectAttempts} 次，已停止自动重连`);
       return;
     }
-    this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = Math.min(
       this.reconnectDelayMs * 2 ** (this.reconnectAttempts - 1),
       this.maxReconnectDelayMs,
     );
     wsLog.info(
-      { attempt: this.reconnectAttempts, max: this.maxReconnectAttempts, delayMs: delay },
+      { attempt: this.reconnectAttempts, max: this.maxReconnectAttempts, delayMs: delay, persistent: this.persistent },
       '计划重连',
     );
-    setTimeout(async () => {
+    this.reconnectTimer = setTimeout(async () => {
+      // 在 connect 之前清空定时器，使本次连失败后的 onClose 能再次排程(避免死锁)
+      this.reconnectTimer = null;
       try {
         await this.connect();
       } catch {
         // status already updated
-      } finally {
-        this.isReconnecting = false;
       }
     }, delay);
   }
