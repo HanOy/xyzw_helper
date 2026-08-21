@@ -5660,6 +5660,33 @@ const stopBatch = () => {
     gap: 8px;
   }
 
+  /* 页头内联 flex 容器在小屏自动换行，避免横向溢出 */
+  .batch-daily-tasks .page-header [style*="display: flex"] {
+    flex-wrap: wrap !important;
+  }
+
+  /* 操作按钮在小屏以 2 列网格排布 */
+  .batch-daily-tasks .page-header > div:last-child .n-button {
+    flex: 1 1 40%;
+    min-width: 0;
+  }
+
+  /* 弹窗内固定宽度输入框在小屏占满 */
+  .n-modal .n-input[style*="width: 200px"],
+  .n-modal .n-input[style*="width: 180px"] {
+    width: 100% !important;
+  }
+
+  /* 卡片内边距收窄 */
+  .batch-daily-tasks .n-card :deep(.n-card__content) {
+    padding: 12px;
+  }
+
+  /* 数据表在窄屏允许横向滚动 */
+  .batch-daily-tasks :deep(.n-data-table-wrapper) {
+    overflow-x: auto;
+  }
+
   .log-card {
     height: auto !important;
   }
@@ -5746,4 +5773,28 @@ const stopBatch = () => {
     }
   }
 }
+
+@media (max-width: 480px) {
+  .batch-daily-tasks {
+    padding: 8px;
+  }
+
+  .batch-daily-tasks .page-header h2 {
+    font-size: 18px;
+  }
+
+  .batch-daily-tasks .page-header > div:last-child {
+    flex-direction: column;
+  }
+
+  .batch-daily-tasks .page-header > div:last-child .n-button {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .batch-daily-tasks .n-card :deep(.n-card__content) {
+    padding: 10px;
+  }
+}
+
 </style>
