@@ -48,16 +48,6 @@
                 <n-button size="small" @click="showTasksModal = true">
                   查看定时任务
                 </n-button>
-                <n-button size="small" @click="exportConfig">
-                  导出配置
-                </n-button>
-                <n-upload
-                  :show-file-list="false"
-                  accept=".json"
-                  :custom-request="importConfig"
-                >
-                  <n-button size="small">导入配置</n-button>
-                </n-upload>
               </div>
             </div>
           </div>
@@ -2842,6 +2832,10 @@ import { useTokenStore, gameTokens, tokenGroups } from "@/stores/tokenStore";
 import { api } from "@/api";
 import { $emit } from "@/stores/events/index.ts";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
+import { useSseStream } from "@/composables/useSseStream";
+import { useSettingsStore } from "@/stores/settingsStore";
+
+const settingsStore = useSettingsStore();
 import { preloadQuestions } from "@/utils/studyQuestionsFromJSON.js";
 import { useMessage } from "naive-ui";
 import { Settings } from "@vicons/ionicons5";
@@ -3422,10 +3416,11 @@ const batchSettings = reactive({
   smartDepartureMatchAll: false,
 });
 
-// Load batch settings from localStorage
-const loadBatchSettings = () => {
+// Load batch settings from backend
+const loadBatchSettings = async () => {
   try {
-    const saved = localStorage.getItem("batchSettings");
+    await settingsStore.load("batchSettings");
+    const saved = settingsStore.getItem("batchSettings");
     if (saved) {
       const parsed = JSON.parse(saved);
       Object.assign(batchSettings, parsed);
@@ -3435,10 +3430,10 @@ const loadBatchSettings = () => {
   }
 };
 
-// Save batch settings to localStorage
+// Save batch settings to backend
 const saveBatchSettings = () => {
   try {
-    localStorage.setItem("batchSettings", JSON.stringify(batchSettings));
+    settingsStore.setItem("batchSettings", JSON.stringify(batchSettings));
     message.success("定时批量任务设置已保存");
     showBatchSettingsModal.value = false;
   } catch (error) {
@@ -3858,221 +3853,6 @@ const deselectAllTasks = () => {
   taskForm.selectedTasks = [];
 };
 
-// ======================
-// Import/Export Config
-// ======================
-
-// Export all tokens and scheduled tasks configuration
-const exportConfig = () => {
-  try {
-    // Get all valid token IDs
-    const validTokenIds = new Set(tokens.value.map((t) => t.id));
-
-    // Filter scheduled tasks: remove invalid token IDs from selectedTokens
-    const filteredScheduledTasks = scheduledTasks.value
-      .map((task) => ({
-        ...task,
-        selectedTokens:
-          task.selectedTokens?.filter((tokenId) =>
-            validTokenIds.has(tokenId),
-          ) || [],
-      }))
-      .filter((task) => task.selectedTokens.length > 0); // Remove tasks with no valid tokens
-
-    // Gather token settings
-    const tokenSettings = [];
-    tokens.value.forEach((token) => {
-      const settings = localStorage.getItem(`daily-settings:${token.id}`);
-      if (settings) {
-        try {
-          tokenSettings.push({
-            tokenId: token.id,
-            settings: JSON.parse(settings),
-          });
-        } catch (e) {
-          console.warn(`Failed to parse settings for token ${token.id}`, e);
-        }
-      }
-    });
-
-    const exportData = {
-      version: "1.1",
-      exportTime: new Date().toISOString(),
-      tokens: tokens.value.map((t) => ({
-        id: t.id,
-        name: t.name,
-        token: t.token,
-        server: t.server,
-        wsUrl: t.wsUrl,
-        remark: t.remark,
-        importMethod: t.importMethod,
-        sourceUrl: t.sourceUrl,
-        upgradedToPermanent: true,
-        upgradedAt: t.upgradedAt,
-        updatedAt: t.updatedAt,
-      })),
-      scheduledTasks: filteredScheduledTasks,
-      batchSettings: {
-        boxCount: batchSettings.boxCount,
-        fishCount: batchSettings.fishCount,
-        recruitCount: batchSettings.recruitCount,
-        defaultBoxType: batchSettings.defaultBoxType,
-        defaultFishType: batchSettings.defaultFishType,
-        carMinColor: batchSettings.carMinColor,
-        commandDelay: batchSettings.commandDelay,
-        taskDelay: batchSettings.taskDelay,
-        actionDelay: batchSettings.actionDelay,
-        battleDelay: batchSettings.battleDelay,
-        refreshDelay: batchSettings.refreshDelay,
-        longDelay: batchSettings.longDelay,
-        maxActive: batchSettings.maxActive,
-        tokenListColumns: batchSettings.tokenListColumns,
-        useGoldRefreshFallback: batchSettings.useGoldRefreshFallback,
-        smartDepartureGoldThreshold: batchSettings.smartDepartureGoldThreshold,
-        smartDepartureRecruitThreshold:
-          batchSettings.smartDepartureRecruitThreshold,
-        smartDepartureJadeThreshold: batchSettings.smartDepartureJadeThreshold,
-        smartDepartureTicketThreshold:
-          batchSettings.smartDepartureTicketThreshold,
-        smartDepartureMatchAll: batchSettings.smartDepartureMatchAll,
-      },
-      tokenSettings: tokenSettings,
-    };
-
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `xyzw_config_${new Date().toISOString().slice(0, 10)}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    message.success(
-      `导出成功: ${exportData.tokens.length} 个账号, ${exportData.scheduledTasks.length} 个定时任务`,
-    );
-  } catch (error) {
-    console.error("Export failed:", error);
-    message.error("导出失败: " + error.message);
-  }
-};
-
-// Import tokens and scheduled tasks configuration
-const importConfig = async ({ file }) => {
-  try {
-  const reader = new FileReader();
-  reader.onload = async (e) => {
-      try {
-        const importData = JSON.parse(e.target.result);
-
-        // Validate structure
-        if (
-          !importData.version ||
-          !importData.tokens ||
-          !importData.scheduledTasks
-        ) {
-          message.error("无效的配置文件格式");
-          return;
-        }
-
-        let importedTokens = 0;
-        let importedTasks = 0;
-
-        // Import tokens
-        if (Array.isArray(importData.tokens)) {
-          importData.tokens.forEach((token) => {
-            // Check if token already exists
-            const exists = gameTokens.value.some(
-              (t) => t.token === token.token || t.id === token.id,
-            );
-            if (!exists && token.token) {
-              // Add new token directly to gameTokens (useLocalStorage)
-              gameTokens.value.push({
-                id:
-                  token.id ||
-                  "token_" + Date.now() + Math.random().toString(36).slice(2),
-                name: token.name || "",
-                token: token.token,
-                server: token.server || "",
-                wsUrl: token.wsUrl || null,
-                remark: token.remark || "",
-                importMethod: "import",
-                sourceUrl: token.sourceUrl || null,
-                upgradedToPermanent: true,
-                upgradedAt: token.upgradedAt || null,
-                updatedAt: token.updatedAt || new Date().toISOString(),
-                createdAt: new Date().toISOString(),
-                lastUsed: new Date().toISOString(),
-              });
-              importedTokens++;
-            }
-          });
-        }
-
-        // Import scheduled tasks
-        if (Array.isArray(importData.scheduledTasks)) {
-          for (const task of importData.scheduledTasks) {
-            if (!task.id) continue;
-            const exists = scheduledTasks.value.some((t) => t.id === task.id);
-            if (!exists) {
-              try {
-                await api.scheduled.create({
-                  name: task.name,
-                  runType: task.runType,
-                  runTime: task.runTime || null,
-                  cronExpression: task.cronExpression || null,
-                  tokenIds: Array.isArray(task.selectedTokens)
-                    ? task.selectedTokens
-                    : [],
-                  selectedTasks: Array.isArray(task.selectedTasks)
-                    ? task.selectedTasks
-                    : [],
-                  enabled: task.enabled !== false,
-                });
-                importedTasks++;
-              } catch (e) {
-                console.error("导入定时任务失败:", e);
-              }
-            }
-          }
-          await loadScheduledTasks();
-        }
-
-        // Import batch settings if provided
-        if (importData.batchSettings) {
-          Object.assign(batchSettings, importData.batchSettings);
-          saveBatchSettings();
-        }
-
-        // Import token settings
-        if (Array.isArray(importData.tokenSettings)) {
-          importData.tokenSettings.forEach((item) => {
-            if (item.tokenId && item.settings) {
-              localStorage.setItem(
-                `daily-settings:${item.tokenId}`,
-                JSON.stringify(item.settings),
-              );
-            }
-          });
-        }
-
-        message.success(
-          `导入成功: ${importedTokens} 个新账号, ${importedTasks} 个新定时任务`,
-        );
-      } catch (parseError) {
-        console.error("Parse error:", parseError);
-        message.error("解析配置文件失败");
-      }
-    };
-    reader.readAsText(file.file);
-  } catch (error) {
-    console.error("Import failed:", error);
-    message.error("导入失败: " + error.message);
-  }
-};
 
 // ======================
 // Scheduled Tasks Countdown
@@ -4594,7 +4374,7 @@ const clearAllItems = () => {
 
 const loadSettings = (tokenId) => {
   try {
-    const raw = localStorage.getItem(`daily-settings:${tokenId}`);
+    const raw = settingsStore.getItem(`daily-settings:${tokenId}`);
     const defaultSettings = {
       arenaFormation: 1,
       towerFormation: 1,
@@ -4625,7 +4405,7 @@ const openSettings = (token) => {
 
 const saveSettings = () => {
   if (currentSettingsTokenId.value) {
-    localStorage.setItem(
+    settingsStore.setItem(
       `daily-settings:${currentSettingsTokenId.value}`,
       JSON.stringify(currentSettings),
     );
@@ -4657,7 +4437,7 @@ const openTaskTemplateModal = () => {
 };
 
 const loadTaskTemplates = () => {
-  const templates = localStorage.getItem("task-templates");
+  const templates = settingsStore.getItem("task-templates");
   const parsed = templates ? JSON.parse(templates) : [];
   taskTemplates.value = parsed;
   return parsed;
@@ -4755,7 +4535,7 @@ const updateTaskTemplate = () => {
   };
 
   // 保存模板到localStorage
-  localStorage.setItem("task-templates", JSON.stringify(templates));
+  settingsStore.setItem("task-templates", JSON.stringify(templates));
 
   // 更新模板列表
   taskTemplates.value = templates;
@@ -4775,7 +4555,7 @@ const deleteTaskTemplate = (templateId) => {
     const filteredTemplates = templates.filter((t) => t.id !== templateId);
 
     // 保存模板到localStorage
-    localStorage.setItem("task-templates", JSON.stringify(filteredTemplates));
+    settingsStore.setItem("task-templates", JSON.stringify(filteredTemplates));
 
     // 更新模板列表
     taskTemplates.value = filteredTemplates;
@@ -4814,7 +4594,7 @@ const loadAccountTemplateReferences = () => {
 
   // 遍历所有账号，获取其模板引用
   sortedTokens.value.forEach((token) => {
-    const settingsStr = localStorage.getItem(`daily-settings:${token.id}`);
+    const settingsStr = settingsStore.getItem(`daily-settings:${token.id}`);
     if (settingsStr) {
       try {
         const settings = JSON.parse(settingsStr);
@@ -4886,7 +4666,7 @@ const saveTaskTemplate = () => {
 
     // 添加新模板
     templates.push(template);
-    localStorage.setItem("task-templates", JSON.stringify(templates));
+    settingsStore.setItem("task-templates", JSON.stringify(templates));
 
     // 更新模板列表
     taskTemplates.value = templates;
@@ -5159,6 +4939,22 @@ const addLog = (log) => {
     }
   });
 };
+
+// 订阅后端 SSE 执行日志(定时任务等后端运行的任务)，转发进本地日志面板
+useSseStream({
+  filter: (e) => e.type === "task.log" || e.type === "task.progress",
+  onEvent: (e) => {
+    if (e.type === "task.log") {
+      addLog({ type: e.level, message: e.message, ts: e.ts });
+    } else if (e.type === "task.progress") {
+      addLog({
+        type: "info",
+        message: `[${e.stage || "进度"}] ${e.current}/${e.total}`,
+        ts: new Date().toISOString(),
+      });
+    }
+  },
+});
 
 watch(autoScrollLog, (newValue) => {
   if (newValue && logContainer.value) {

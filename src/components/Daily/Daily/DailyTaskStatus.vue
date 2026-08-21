@@ -286,6 +286,7 @@ import {
 } from "vue";
 import { useTokenStore } from "@/stores/tokenStore";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
+import { useSettingsStore } from "@/stores/settingsStore";
 import { useMessage } from "naive-ui";
 import {
   Settings,
@@ -297,6 +298,7 @@ import {
 } from "@vicons/ionicons5";
 
 const tokenStore = useTokenStore();
+const settingsStore = useSettingsStore();
 const message = useMessage();
 
 // 响应式数据
@@ -544,9 +546,10 @@ const getCurrentRole = () => {
     : null;
 };
 
-const loadSettings = (roleId) => {
+const loadSettings = async (roleId) => {
   try {
-    const raw = localStorage.getItem(`daily-settings:${roleId}`);
+    await settingsStore.load(`daily-settings:${roleId}`);
+    const raw = settingsStore.getItem(`daily-settings:${roleId}`);
     return raw ? JSON.parse(raw) : null;
   } catch (error) {
     console.error("Failed to load settings:", error);
@@ -556,7 +559,7 @@ const loadSettings = (roleId) => {
 
 const saveSettings = (roleId, s) => {
   try {
-    localStorage.setItem(`daily-settings:${roleId}`, JSON.stringify(s));
+    settingsStore.setItem(`daily-settings:${roleId}`, JSON.stringify(s));
   } catch (error) {
     console.error("Failed to save settings:", error);
   }
@@ -580,7 +583,7 @@ watch(
       log(`切换到Token: ${newToken.name}`);
 
       // 加载新token的设置
-      const saved = loadSettings(newToken.id);
+      const saved = await loadSettings(newToken.id);
       if (saved) Object.assign(settings, saved);
 
       // 如果WebSocket已连接，尝试获取最新角色信息
@@ -623,7 +626,7 @@ onMounted(async () => {
 
   const role = getCurrentRole();
   if (role) {
-    const saved = loadSettings(role.roleId);
+    const saved = await loadSettings(role.roleId);
     if (saved) Object.assign(settings, saved);
   }
 

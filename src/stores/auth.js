@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { api, setStoredToken, getStoredToken } from '../api';
 import { useTokensStore } from './tokens';
+import { useSettingsStore } from './settingsStore';
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref(null);
@@ -17,6 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
       setStoredToken(tk);
       token.value = tk;
       user.value = { username: 'admin' };
+      useSettingsStore().hydrate();
       const store = useTokensStore();
       await store.refresh();
       return { success: true };
@@ -48,6 +50,7 @@ export const useAuthStore = defineStore('auth', () => {
   function initAuth() {
     if (token.value) {
       user.value = { username: 'admin' };
+      useSettingsStore().hydrate();
     }
   }
 

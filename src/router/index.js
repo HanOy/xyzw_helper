@@ -51,12 +51,6 @@ const my_routes = [
         meta: { title: '个人设置', requiresToken: true },
       },
       {
-        path: 'daily-tasks',
-        name: 'DailyTasks',
-        component: () => import('@/views/DailyTasks.vue'),
-        meta: { title: '日常任务', requiresToken: true },
-      },
-      {
         path: 'batch-daily-tasks',
         name: 'BatchDailyTasks',
         component: () => import('@/views/BatchDailyTasks.vue'),

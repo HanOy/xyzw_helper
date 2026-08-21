@@ -95,16 +95,6 @@
           <span>Token管理</span>
         </router-link>
         <router-link
-          to="/admin/daily-tasks"
-          class="drawer-item"
-          @click="isMobileMenuOpen = false"
-        >
-          <n-icon>
-            <Settings />
-          </n-icon>
-          <span>任务管理</span>
-        </router-link>
-        <router-link
           to="/admin/batch-daily-tasks"
           class="drawer-item"
           @click="isMobileMenuOpen = false"

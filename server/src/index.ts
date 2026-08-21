@@ -26,6 +26,7 @@ import { registerBatchRoutes } from './api/batch.routes.js';
 import { registerWeixinRoutes } from './api/weixin.routes.js';
 import { registerHortorRoutes } from './api/hortor.routes.js';
 import { registerScheduledRoutes } from './api/scheduled.routes.js';
+import { registerSettingsRoutes } from './api/settings.routes.js';
 import { seedTasksIfNeeded } from './tasks/taskRunner.js';
 import { startScheduler, stopScheduler } from './tasks/scheduler.js';
 import { connectionPool } from './game/poolSingleton.js';
@@ -142,6 +143,7 @@ async function bootstrap() {
   registerWeixinRoutes(app);
   registerHortorRoutes(app);
   registerScheduledRoutes(app);
+  registerSettingsRoutes(app);
 
   app.get('/api/health', async () => ({ ok: true, ts: Date.now() }));
 

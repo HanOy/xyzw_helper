@@ -114,6 +114,14 @@ export const api = {
       request.post(`/scheduled-tasks/${id}/toggle`, { enabled }),
     run: (id: string) => request.post(`/scheduled-tasks/${id}/run`),
   },
+  settings: {
+    get: (key: string) => request.get(`/settings/${encodeURIComponent(key)}`),
+    list: (prefix?: string) =>
+      request.get('/settings', { params: prefix ? { prefix } : {} }),
+    set: (key: string, value: unknown) =>
+      request.put(`/settings/${encodeURIComponent(key)}`, { value }),
+    remove: (key: string) => request.delete(`/settings/${encodeURIComponent(key)}`),
+  },
 };
 
 export default api;

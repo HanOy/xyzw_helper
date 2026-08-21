@@ -1,4 +1,5 @@
 import { useTokenStore } from "@/stores/tokenStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 
 // 辅助函数
 const pickArenaTargetId = (targets) => {
@@ -151,7 +152,8 @@ export class DailyTaskRunner {
 
   loadSettings(roleId) {
     try {
-      const raw = localStorage.getItem(`daily-settings:${roleId}`);
+      const store = useSettingsStore();
+      const raw = store.getItem(`daily-settings:${roleId}`);
       const defaultSettings = {
         arenaFormation: 1,
         bossFormation: 1,
@@ -174,7 +176,7 @@ export class DailyTaskRunner {
 
   async run(tokenId, callbacks = {}, customSettings = null) {
     this.callbacks = callbacks;
-    const settings = customSettings || this.loadSettings(tokenId); // 优先使用传入的设置
+    const settings = customSettings || (await this.loadSettings(tokenId)); // 优先使用传入的设置
 
     // 获取角色信息以确认 roleId 和 任务状态
     this.log("正在获取角色信息...");
