@@ -10,7 +10,10 @@ export interface BatchOperationsRequest {
   settings?: Record<string, unknown>;
 }
 
-export async function runBatchOperations(opts: BatchOperationsRequest): Promise<string> {
+export function runBatchOperations(
+  opts: BatchOperationsRequest,
+  onComplete?: (status: 'success' | 'failed', error?: string) => void,
+): string {
   const batchId = createRun({
     type: 'batch-ops',
     settings: { tokenCount: opts.tokenIds.length, ...(opts.settings ?? {}) },
@@ -21,7 +24,9 @@ export async function runBatchOperations(opts: BatchOperationsRequest): Promise<
     total: opts.tokenIds.length,
   });
 
-  for (let i = 0; i < opts.tokenIds.length; i++) {
+  void (async () => {
+    try {
+      for (let i = 0; i < opts.tokenIds.length; i++) {
     if (isCancelled(batchId)) {
       updateRun(batchId, { status: 'cancelled', finishedAt: new Date().toISOString() });
       taskLog({ runId: batchId, level: 'warn', message: '批量操作已取消' });
@@ -60,9 +65,17 @@ export async function runBatchOperations(opts: BatchOperationsRequest): Promise<
       }
     });
     taskProgress(batchId, i + 1, opts.tokenIds.length, tokenName);
-  }
+      }
 
-  updateRun(batchId, { status: 'success', finishedAt: new Date().toISOString() });
-  taskLog({ runId: batchId, level: 'info', message: '批量操作完成' });
+      updateRun(batchId, { status: 'success', finishedAt: new Date().toISOString() });
+      taskLog({ runId: batchId, level: 'info', message: '批量操作完成' });
+      onComplete?.('success');
+    } catch (err) {
+      const message = (err as Error).message;
+      updateRun(batchId, { status: 'failed', finishedAt: new Date().toISOString(), error: message });
+      taskLog({ runId: batchId, level: 'error', message: `批量操作异常终止: ${message}` });
+      onComplete?.('failed', message);
+    }
+  })();
   return batchId;
 }

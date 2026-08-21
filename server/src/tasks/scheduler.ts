@@ -33,23 +33,27 @@ function executeTask(task: ScheduledTask): void {
   }
   log.info({ taskId: task.id, name: task.name, tokens: task.tokenIds.length }, '触发定时任务');
   markTaskRun(task.id, 'running');
-  const run = task.selectedTasks?.length
-    ? runBatchOperations({
+  const onDone = (status: 'success' | 'failed', error?: string) => {
+    if (status === 'success') {
+      markTaskRun(task.id, 'success');
+      log.info({ taskId: task.id }, '定时任务执行完成');
+    } else {
+      markTaskRun(task.id, 'failed', error);
+      log.error({ taskId: task.id, err: error }, '定时任务执行失败');
+    }
+  };
+  if (task.selectedTasks?.length) {
+    runBatchOperations(
+      {
         tokenIds: task.tokenIds,
         selectedTasks: task.selectedTasks,
         settings: loadBatchSettings(),
-      })
-    : runBatchDailyTasks({ tokenIds: task.tokenIds });
-  run
-    .then((batchId) => {
-      markTaskRun(task.id, 'success');
-      log.info({ taskId: task.id, batchId }, '定时任务执行完成');
-    })
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      markTaskRun(task.id, 'failed', message);
-      log.error({ taskId: task.id, err: message }, '定时任务执行失败');
-    });
+      },
+      onDone,
+    );
+  } else {
+    runBatchDailyTasks({ tokenIds: task.tokenIds }, onDone);
+  }
 }
 
 function tick(): void {
@@ -80,26 +84,25 @@ export function stopScheduler(): void {
   log.info('定时任务调度器已停止');
 }
 
-export function runScheduledTaskNow(id: string): Promise<string> {
+export function runScheduledTaskNow(id: string): string {
   const task = listScheduledTasks().find((t) => t.id === id);
-  if (!task) return Promise.reject(new Error('定时任务不存在'));
-  if (!task.tokenIds.length) return Promise.reject(new Error('定时任务没有选中任何 token'));
+  if (!task) throw new Error('定时任务不存在');
+  if (!task.tokenIds.length) throw new Error('定时任务没有选中任何 token');
   markTaskRun(task.id, 'running');
-  const run = task.selectedTasks?.length
-    ? runBatchOperations({
-        tokenIds: task.tokenIds,
-        selectedTasks: task.selectedTasks,
-        settings: loadBatchSettings(),
-      })
-    : runBatchDailyTasks({ tokenIds: task.tokenIds });
-  return run
-    .then((batchId) => {
-      markTaskRun(task.id, 'success');
-      return batchId;
-    })
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      markTaskRun(task.id, 'failed', message);
-      throw err;
-    });
+  const onDone = (status: 'success' | 'failed', error?: string) => {
+    if (status === 'success') markTaskRun(task.id, 'success');
+    else markTaskRun(task.id, 'failed', error);
+  };
+  const batchId = task.selectedTasks?.length
+    ? runBatchOperations(
+        {
+          tokenIds: task.tokenIds,
+          selectedTasks: task.selectedTasks,
+          settings: loadBatchSettings(),
+        },
+        onDone,
+      )
+    : runBatchDailyTasks({ tokenIds: task.tokenIds }, onDone);
+  // 同步返回 batchId, 不 await 整个长任务, 避免 HTTP 请求长时间挂起导致前端误判"执行失败"
+  return batchId;
 }
