@@ -39,13 +39,6 @@
               <n-checkbox v-model:checked="loginForm.rememberMe">
                 记住我
               </n-checkbox>
-              <n-button
-                text
-                type="primary"
-                @click="router.push('/forgot-password')"
-              >
-                忘记密码？
-              </n-button>
             </div>
 
             <n-button
