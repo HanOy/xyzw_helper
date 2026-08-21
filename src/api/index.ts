@@ -95,6 +95,11 @@ export const api = {
   batch: {
     daily: (tokenIds: string[], settings?: unknown) =>
       request.post('/batch/daily-tasks', { tokenIds, settings }),
+    operations: (payload: {
+      tokenIds: string[];
+      selectedTasks: string[];
+      settings?: unknown;
+    }) => request.post('/batch/operations', payload),
     stop: (batchId: string) => request.post(`/batch/${batchId}/stop`),
   },
   logs: {

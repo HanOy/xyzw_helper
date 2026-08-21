@@ -2831,7 +2831,6 @@ import {
 import { useTokenStore, gameTokens, tokenGroups } from "@/stores/tokenStore";
 import { api } from "@/api";
 import { $emit } from "@/stores/events/index.ts";
-import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
 import { useSseStream } from "@/composables/useSseStream";
 import { useSettingsStore } from "@/stores/settingsStore";
 
@@ -3107,6 +3106,7 @@ const selectedTokens = ref([]);
 const tokenStatus = ref({}); // { tokenId: 'waiting' | 'running' | 'completed' | 'failed' }
 const isRunning = ref(false);
 const shouldStop = ref(false);
+const currentBatchId = ref(null);
 
 // =====================
 // Token分组管理状态
@@ -4940,17 +4940,21 @@ const addLog = (log) => {
   });
 };
 
-// 订阅后端 SSE 执行日志(定时任务等后端运行的任务)，转发进本地日志面板
+// 订阅后端 SSE 执行日志(定时任务 / 手动执行等后端运行的任务)，转发进本地日志面板
 useSseStream({
   filter: (e) => e.type === "task.log" || e.type === "task.progress",
   onEvent: (e) => {
     if (e.type === "task.log") {
-      addLog({ type: e.level, message: e.message, ts: e.ts });
+      addLog({
+        type: e.level,
+        message: e.message,
+        time: e.ts ? new Date(e.ts).toLocaleTimeString() : "",
+      });
     } else if (e.type === "task.progress") {
       addLog({
         type: "info",
         message: `[${e.stage || "进度"}] ${e.current}/${e.total}`,
-        ts: new Date().toISOString(),
+        time: new Date().toLocaleTimeString(),
       });
     }
   },
@@ -5239,122 +5243,81 @@ const onFootballPickChange = async (val) => {
   await batchFootballBet(val);
 };
 
+// 手动执行: 调用后端批量“每日补差”接口，由后端驱动游戏服
+// (批量操作 35 项已在后端实现，通过“定时任务 -> 立即执行”走后端 runBatchOperations)
 const startBatch = async () => {
   if (selectedTokens.value.length === 0) return;
 
   isRunning.value = true;
   shouldStop.value = false;
-  // 不再重置logs数组，保留之前的日志
-  // logs.value = [];
+  currentBatchId.value = null;
 
-  // Reset status
   selectedTokens.value.forEach((id) => {
-    tokenStatus.value[id] = "waiting";
+    tokenStatus.value[id] = "running";
   });
 
-  // 并行执行任务，但通过connectionQueue限制并发连接数
-  const taskPromises = selectedTokens.value.map(async (tokenId) => {
-    if (shouldStop.value) return;
-
-    tokenStatus.value[tokenId] = "running";
-
-    let retryCount = 0;
-    const MAX_RETRIES = 1;
-    let success = false;
-
-    while (retryCount <= MAX_RETRIES && !success) {
-      if (shouldStop.value) break;
-
-      const token = tokens.value.find((t) => t.id === tokenId);
-
-      try {
-        if (retryCount === 0) {
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `=== 开始执行: ${token.name} ===`,
-            type: "info",
-          });
-        } else {
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `=== 尝试重试: ${token.name} (第${retryCount}次) ===`,
-            type: "info",
-          });
-        }
-
-        await ensureConnection(tokenId);
-
-        // Create runner with delay settings
-        const runner = new DailyTaskRunner(tokenStore, {
-          commandDelay: batchSettings.commandDelay,
-          taskDelay: batchSettings.taskDelay,
-        });
-
-        // Run tasks
-        await runner.run(tokenId, {
-          onLog: (log) => addLog(log),
-          onProgress: (p) => {
-            // 每个token维护自己的进度
-          },
-        });
-
-        success = true;
-        tokenStatus.value[tokenId] = "completed";
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `=== ${token.name} 执行完成 ===`,
-          type: "success",
-        });
-      } catch (error) {
-        console.error(error);
-        if (retryCount < MAX_RETRIES && !shouldStop.value) {
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `${token.name} 执行出错: ${error.message}，等待3秒后重试...`,
-            type: "warning",
-          });
-          // Wait for potential token refresh in store
-          await new Promise((r) => setTimeout(r, 3000));
-          retryCount++;
-        } else {
-          tokenStatus.value[tokenId] = "failed";
-          addLog({
-            time: new Date().toLocaleTimeString(),
-            message: `${token.name} 执行失败: ${error.message}`,
-            type: "error",
-          });
-        }
-      } finally {
-        // 完成后关闭连接并释放槽位
-        tokenStore.closeWebSocketConnection(tokenId);
-        releaseConnectionSlot();
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `${token.name} 连接已关闭  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
-          type: "info",
-        });
-      }
-    }
+  addLog({
+    time: new Date().toLocaleTimeString(),
+    message: `=== 开始批量执行(后端): ${selectedTokens.value.length} 个 token ===`,
+    type: "info",
   });
 
-  // 等待所有任务完成
-  await Promise.all(taskPromises);
+  try {
+    const res = await api.batch.daily(selectedTokens.value, {
+      commandDelay: batchSettings.commandDelay,
+      taskDelay: batchSettings.taskDelay,
+    });
+    const batchId =
+      res?.data?.data?.batchId ?? res?.data?.batchId ?? null;
+    currentBatchId.value = batchId;
 
-  // 等待所有任务完成后再继续
-  await new Promise((r) => setTimeout(r, 1000));
-
-  isRunning.value = false;
-  currentRunningTokenId.value = null;
-  message.success("批量任务执行结束");
+    selectedTokens.value.forEach((id) => {
+      tokenStatus.value[id] = "completed";
+    });
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: `=== 后端批量任务已提交 (batchId=${batchId ?? "?"}) ===`,
+      type: "success",
+    });
+  } catch (error) {
+    console.error(error);
+    selectedTokens.value.forEach((id) => {
+      tokenStatus.value[id] = "failed";
+    });
+    addLog({
+      time: new Date().toLocaleTimeString(),
+      message: `批量执行失败: ${error?.message || error}`,
+      type: "error",
+    });
+  } finally {
+    isRunning.value = false;
+    currentRunningTokenId.value = null;
+  }
 };
 
-const stopBatch = () => {
+const stopBatch = async () => {
   shouldStop.value = true;
   addLog({
     time: new Date().toLocaleTimeString(),
-    message: "正在停止...",
+    message: "正在向后端发送停止请求...",
     type: "warning",
   });
+  if (currentBatchId.value) {
+    try {
+      await api.batch.stop(currentBatchId.value);
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: "已发送停止请求",
+        type: "warning",
+      });
+    } catch (error) {
+      addLog({
+        time: new Date().toLocaleTimeString(),
+        message: `停止请求失败: ${error?.message || error}`,
+        type: "error",
+      });
+    }
+  }
 };
 </script>
 
