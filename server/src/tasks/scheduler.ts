@@ -1,4 +1,6 @@
 import { runBatchDailyTasks } from './taskRunner.js';
+import { runBatchOperations } from './batch/executor.js';
+import { getSetting } from '../settings/settingsService.js';
 import {
   listScheduledTasks,
   markTaskRun,
@@ -6,6 +8,16 @@ import {
   type ScheduledTask,
 } from './scheduledTasks.js';
 import { logger } from '../logger.js';
+
+function loadBatchSettings(): Record<string, unknown> | undefined {
+  const raw = getSetting('batchSettings');
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+}
 
 const log = logger.child({ mod: 'scheduler' });
 
@@ -21,7 +33,14 @@ function executeTask(task: ScheduledTask): void {
   }
   log.info({ taskId: task.id, name: task.name, tokens: task.tokenIds.length }, '触发定时任务');
   markTaskRun(task.id, 'running');
-  runBatchDailyTasks({ tokenIds: task.tokenIds })
+  const run = task.selectedTasks?.length
+    ? runBatchOperations({
+        tokenIds: task.tokenIds,
+        selectedTasks: task.selectedTasks,
+        settings: loadBatchSettings(),
+      })
+    : runBatchDailyTasks({ tokenIds: task.tokenIds });
+  run
     .then((batchId) => {
       markTaskRun(task.id, 'success');
       log.info({ taskId: task.id, batchId }, '定时任务执行完成');
@@ -66,7 +85,14 @@ export function runScheduledTaskNow(id: string): Promise<string> {
   if (!task) return Promise.reject(new Error('定时任务不存在'));
   if (!task.tokenIds.length) return Promise.reject(new Error('定时任务没有选中任何 token'));
   markTaskRun(task.id, 'running');
-  return runBatchDailyTasks({ tokenIds: task.tokenIds })
+  const run = task.selectedTasks?.length
+    ? runBatchOperations({
+        tokenIds: task.tokenIds,
+        selectedTasks: task.selectedTasks,
+        settings: loadBatchSettings(),
+      })
+    : runBatchDailyTasks({ tokenIds: task.tokenIds });
+  return run
     .then((batchId) => {
       markTaskRun(task.id, 'success');
       return batchId;

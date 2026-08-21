@@ -10,7 +10,7 @@ export type RunStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelle
 export interface TaskLogInput {
   runId: string;
   tokenId?: string;
-  level: 'info' | 'warn' | 'error';
+  level: 'info' | 'warn' | 'error' | 'success';
   message: string;
 }
 

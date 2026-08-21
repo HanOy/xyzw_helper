@@ -5,7 +5,7 @@ import type { GameMessage, GameSocketStatus } from '../game/GameSocket.js';
 export type BusEvent =
   | { type: 'ws.status'; tokenId: string; status: GameSocketStatus; error?: string }
   | { type: 'game.event'; tokenId: string; msg: GameMessage }
-  | { type: 'task.log'; runId: string; tokenId?: string; level: 'info' | 'warn' | 'error'; message: string; ts: string }
+  | { type: 'task.log'; runId: string; tokenId?: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; ts: string }
   | { type: 'task.progress'; runId: string; current: number; total: number; stage?: string }
   | { type: 'sse.attach'; tokenIds: string[] | null }
   | { type: 'sse.detach'; tokenIds: string[] | null };

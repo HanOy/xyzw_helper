@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { runBatchDailyTasks, cancelRun } from '../tasks/taskRunner.js';
+import { runBatchOperations } from '../tasks/batch/executor.js';
 
 export function registerBatchRoutes(app: FastifyInstance): void {
   app.post<{ Body: { tokenIds: string[]; settings?: Record<string, unknown> } }>(
@@ -14,6 +15,25 @@ export function registerBatchRoutes(app: FastifyInstance): void {
       return { success: true, data: { batchId } };
     },
   );
+
+  app.post<{
+    Body: {
+      tokenIds: string[];
+      selectedTasks?: string[];
+      settings?: Record<string, unknown>;
+    };
+  }>('/api/batch/operations', { preHandler: app.authPreHandler }, async (req, reply) => {
+    if (!req.body?.tokenIds?.length) {
+      reply.code(400);
+      return { success: false, message: 'tokenIds 不能为空' };
+    }
+    const batchId = await runBatchOperations({
+      tokenIds: req.body.tokenIds,
+      selectedTasks: req.body.selectedTasks ?? [],
+      settings: req.body.settings,
+    });
+    return { success: true, data: { batchId } };
+  });
 
   app.post<{ Params: { batchId: string } }>(
     '/api/batch/:batchId/stop',

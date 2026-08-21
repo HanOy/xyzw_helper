@@ -1,7 +1,8 @@
-import { runDailyTasks } from './DailyTaskRunner.js';
+import { runDailyTasks, type DailyTaskSettings } from './DailyTaskRunner.js';
 import { createRun, taskLog, taskProgress, updateRun, isCancelled } from './runState.js';
 import { connectionPool } from '../game/poolSingleton.js';
 import { tokenService } from '../token/TokenService.js';
+import { getSetting } from '../settings/settingsService.js';
 import { logger } from '../logger.js';
 
 const log = logger.child({ mod: 'task-runner' });
@@ -12,6 +13,16 @@ export function seedTasksIfNeeded(): void {
   if (seeded) return;
   seeded = true;
   log.info('task runner seeded');
+}
+
+function loadTokenSettings(tokenId: string): DailyTaskSettings | undefined {
+  const raw = getSetting(`daily-settings:${tokenId}`);
+  if (!raw) return undefined;
+  try {
+    return JSON.parse(raw) as DailyTaskSettings;
+  } catch {
+    return undefined;
+  }
 }
 
 export interface BatchDailyRequest {
@@ -46,7 +57,11 @@ export async function runBatchDailyTasks(opts: BatchDailyRequest): Promise<strin
       connectionPool.beginTask(tokenId);
       try {
         await connectionPool.ensureConnection(meta);
-        const subRunId = await runDailyTasks(tokenId, opts.settings as any);
+        const tokenSettings =
+          opts.settings && Object.keys(opts.settings).length
+            ? (opts.settings as unknown as DailyTaskSettings)
+            : loadTokenSettings(tokenId);
+        const subRunId = await runDailyTasks(tokenId, tokenSettings);
         taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
       } finally {
         connectionPool.endTask(tokenId);
