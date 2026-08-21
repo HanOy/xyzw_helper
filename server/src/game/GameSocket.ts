@@ -17,6 +17,8 @@ export interface GameSocketOptions {
   sendQueueIntervalMs?: number;
   maxReconnectAttempts?: number;
   reconnectDelayMs?: number;
+  reconnectStableMs?: number;
+  maxReconnectDelayMs?: number;
 }
 
 interface QueueTask {
@@ -61,6 +63,9 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly sendQueueIntervalMs: number;
   private readonly maxReconnectAttempts: number;
   private readonly reconnectDelayMs: number;
+  private readonly reconnectStableMs: number;
+  private readonly maxReconnectDelayMs: number;
+  private stableTimer: NodeJS.Timeout | null = null;
 
   private ws: WebSocket | null = null;
   private status: GameSocketStatus = 'disconnected';
@@ -84,6 +89,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
+    this.reconnectStableMs = options.reconnectStableMs ?? 30000;
+    this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 60000;
   }
 
   getStatus(): GameSocketStatus {
@@ -96,6 +103,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
+      this.intentionalClose = false;
+      if (!this.isReconnecting) this.reconnectAttempts = 0;
       if (this.status === 'connected' || this.status === 'connecting') {
         resolve();
         return;
@@ -114,10 +123,15 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       }
 
       const onOpen = () => {
-        this.reconnectAttempts = 0;
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
+        // 仅当连接稳定一段时间后才重置重连计数，避免"连上即断"导致无限重连
+        if (this.stableTimer) clearTimeout(this.stableTimer);
+        this.stableTimer = setTimeout(() => {
+          this.reconnectAttempts = 0;
+          wsLog.info('连接已稳定，重置重连计数');
+        }, this.reconnectStableMs);
         resolve();
       };
 
@@ -153,7 +167,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
       const onClose = (code: number, reasonBuf: Buffer) => {
         const reason = reasonBuf?.toString() ?? '';
-        wsLog.info({ code, reason }, 'ws closed');
+        wsLog.info({ code, reason, reconnectAttempts: this.reconnectAttempts }, 'ws closed');
         this.cleanup();
         this.setStatus('disconnected', reason || `code ${code}`);
         if (!this.intentionalClose) {
@@ -201,6 +215,10 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
     }
     for (const [seq, p] of this.pending) {
       clearTimeout(p.timer);
@@ -345,11 +363,23 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private scheduleReconnect(): void {
     if (this.isReconnecting || this.intentionalClose) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      wsLog.warn('reconnect attempts exhausted');
+      wsLog.warn(
+        { attempts: this.reconnectAttempts },
+        '重连次数已耗尽，停止自动重连（请检查连接/鉴权配置或手动重连）',
+      );
+      this.setStatus('error', `重连失败 ${this.reconnectAttempts} 次，已停止自动重连`);
       return;
     }
     this.isReconnecting = true;
     this.reconnectAttempts++;
+    const delay = Math.min(
+      this.reconnectDelayMs * 2 ** (this.reconnectAttempts - 1),
+      this.maxReconnectDelayMs,
+    );
+    wsLog.info(
+      { attempt: this.reconnectAttempts, max: this.maxReconnectAttempts, delayMs: delay },
+      '计划重连',
+    );
     setTimeout(async () => {
       try {
         await this.connect();
@@ -358,6 +388,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       } finally {
         this.isReconnecting = false;
       }
-    }, this.reconnectDelayMs);
+    }, delay);
   }
 }
