@@ -138,6 +138,7 @@ export class ConnectionPool {
   beginTask(id: string): void {
     this.activeTasks.set(id, (this.activeTasks.get(id) ?? 0) + 1);
     this.touch(id);
+    this.refreshPersistent(id);
   }
 
   endTask(id: string): void {
@@ -145,6 +146,7 @@ export class ConnectionPool {
     if (next <= 0) this.activeTasks.delete(id);
     else this.activeTasks.set(id, next);
     this.touch(id);
+    this.refreshPersistent(id);
   }
 
   private watchSseActivity(): void {
@@ -166,7 +168,15 @@ export class ConnectionPool {
   private setWatcher(id: string, count: number): void {
     if (count <= 0) this.watchers.delete(id);
     else this.watchers.set(id, count);
-    this.touch(id);
+    this.refreshPersistent(id);
+  }
+
+  /** 有活跃任务或 SSE 订阅者时标记连接为 persistent，掉线后持续重连 */
+  private refreshPersistent(id: string): void {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    entry.socket.persistent =
+      (this.activeTasks.get(id) ?? 0) > 0 || (this.watchers.get(id) ?? 0) > 0;
   }
 
   private sweepIdle(): void {
