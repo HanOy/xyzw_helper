@@ -138,6 +138,17 @@ export function createTasksTower(ctx: BatchContext) {
       let currentEnergy = (evotowerinfo1 as any)?.evoTower?.energy;
       ctx.log('info', `${ctx.tokenId} 初始能量: ${currentEnergy}`);
 
+      // 进入循环前，先检查并领取上一章遗留的通关奖励
+      // 怪异塔每过一章(10层)必须领取奖励才能继续，否则 evotower_fight 会被游戏拒(12200020)
+      const initTowerId = (evotowerinfo1 as any)?.evoTower?.towerId || 0;
+      const initFloor = (initTowerId % 10) + 1;
+      const initChapter = Math.floor(initTowerId / 10);
+      if (initFloor === 1 && initChapter >= 1) {
+        await ctx.send("evotower_claimreward", {}, 5000).catch(() => {});
+        ctx.log('success', `${ctx.tokenId} 检测到上一章通关奖励未领取，已自动领取`);
+        await ctx.sleep(500);
+      }
+
       let count = 0;
       const MAX_CLIMB = normalizeWeirdTowerMaxClimb(ctx.weirdTowerMaxClimb);
       let consecutiveFailures = 0;
