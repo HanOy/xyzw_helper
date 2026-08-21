@@ -5,6 +5,48 @@ import { logger } from '../logger.js';
 
 const log = logger.child({ mod: 'task' });
 
+// 同一 token 的批量任务(日常补差 / 批量操作)按 FIFO 串行执行：
+// 后者入队,等前者(及其队列)跑完再执行,避免两套循环在同一 WS 连接上交错抢状态。
+// 不限制单条手动指令(手动指令走发送队列本就串行)。
+const runningBatchTokens = new Set<string>();
+const tokenBatchQueues = new Map<string, Array<() => Promise<void>>>();
+
+export function enqueueBatchToken(tokenId: string, fn: () => Promise<void>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const wrapped = async (): Promise<void> => {
+      try {
+        await fn();
+      } catch {
+        // fn 内部已记录日志
+      } finally {
+        resolve();
+      }
+    };
+    if (runningBatchTokens.has(tokenId)) {
+      const q = tokenBatchQueues.get(tokenId) ?? [];
+      q.push(wrapped);
+      tokenBatchQueues.set(tokenId, q);
+      return;
+    }
+    runningBatchTokens.add(tokenId);
+    void runTokenBatchQueue(tokenId, wrapped);
+  });
+}
+
+async function runTokenBatchQueue(tokenId: string, first: () => Promise<void>): Promise<void> {
+  let fn: (() => Promise<void>) | undefined = first;
+  try {
+    while (fn) {
+      await fn();
+      const q = tokenBatchQueues.get(tokenId);
+      fn = q && q.length ? (q.shift() as () => Promise<void>) : undefined;
+    }
+  } finally {
+    tokenBatchQueues.delete(tokenId);
+    runningBatchTokens.delete(tokenId);
+  }
+}
+
 export type RunStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
 
 export interface TaskLogInput {

@@ -1,6 +1,6 @@
 import { connectionPool } from '../../game/poolSingleton.js';
 import { tokenService } from '../../token/TokenService.js';
-import { createRun, taskLog, taskProgress, updateRun, isCancelled } from '../runState.js';
+import { createRun, taskLog, taskProgress, updateRun, isCancelled, enqueueBatchToken } from '../runState.js';
 import { BatchContext } from './context.js';
 import { dispatchSelectedTasks } from './registry.js';
 
@@ -30,33 +30,35 @@ export async function runBatchOperations(opts: BatchOperationsRequest): Promise<
     const tokenId = opts.tokenIds[i];
     const token = tokenService.get(tokenId);
     const tokenName = token?.name ?? tokenId;
-    taskLog({ runId: batchId, tokenId, level: 'info', message: `开始处理 ${tokenName}` });
-    try {
-      const meta = tokenService.toConnectionMeta(tokenId);
-      if (!meta) throw new Error('token 不存在');
-      connectionPool.beginTask(tokenId);
+    await enqueueBatchToken(tokenId, async () => {
+      taskLog({ runId: batchId, tokenId, level: 'info', message: `开始处理 ${tokenName}` });
       try {
-        await connectionPool.ensureConnection(meta);
-        const ctx = new BatchContext({
+        const meta = tokenService.toConnectionMeta(tokenId);
+        if (!meta) throw new Error('token 不存在');
+        connectionPool.beginTask(tokenId);
+        try {
+          await connectionPool.ensureConnection(meta);
+          const ctx = new BatchContext({
+            runId: batchId,
+            tokenId,
+            batchSettings: opts.settings,
+            shouldStop: () => isCancelled(batchId),
+          });
+          await ctx.getRoleInfo();
+          await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
+          taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
+        } finally {
+          connectionPool.endTask(tokenId);
+        }
+      } catch (err) {
+        taskLog({
           runId: batchId,
           tokenId,
-          batchSettings: opts.settings,
-          shouldStop: () => isCancelled(batchId),
+          level: 'error',
+          message: `${tokenName} 失败: ${(err as Error).message}`,
         });
-        await ctx.getRoleInfo();
-        await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
-        taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
-      } finally {
-        connectionPool.endTask(tokenId);
       }
-    } catch (err) {
-      taskLog({
-        runId: batchId,
-        tokenId,
-        level: 'error',
-        message: `${tokenName} 失败: ${(err as Error).message}`,
-      });
-    }
+    });
     taskProgress(batchId, i + 1, opts.tokenIds.length, tokenName);
   }
 

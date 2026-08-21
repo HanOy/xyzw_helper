@@ -1,5 +1,5 @@
 import { runDailyTasks, type DailyTaskSettings } from './DailyTaskRunner.js';
-import { createRun, taskLog, taskProgress, updateRun, isCancelled } from './runState.js';
+import { createRun, taskLog, taskProgress, updateRun, isCancelled, enqueueBatchToken } from './runState.js';
 import { connectionPool } from '../game/poolSingleton.js';
 import { tokenService } from '../token/TokenService.js';
 import { getSetting } from '../settings/settingsService.js';
@@ -50,25 +50,27 @@ export async function runBatchDailyTasks(opts: BatchDailyRequest): Promise<strin
     const tokenId = opts.tokenIds[i];
     const token = tokenService.get(tokenId);
     const tokenName = token?.name ?? tokenId;
-    taskLog({ runId: batchId, tokenId, level: 'info', message: `开始处理 ${tokenName}` });
-    try {
-      const meta = tokenService.toConnectionMeta(tokenId);
-      if (!meta) throw new Error('token 不存在');
-      connectionPool.beginTask(tokenId);
+    await enqueueBatchToken(tokenId, async () => {
+      taskLog({ runId: batchId, tokenId, level: 'info', message: `开始处理 ${tokenName}` });
       try {
-        await connectionPool.ensureConnection(meta);
-        const tokenSettings =
-          opts.settings && Object.keys(opts.settings).length
-            ? (opts.settings as unknown as DailyTaskSettings)
-            : loadTokenSettings(tokenId);
-        const subRunId = await runDailyTasks(tokenId, tokenSettings);
-        taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
-      } finally {
-        connectionPool.endTask(tokenId);
+        const meta = tokenService.toConnectionMeta(tokenId);
+        if (!meta) throw new Error('token 不存在');
+        connectionPool.beginTask(tokenId);
+        try {
+          await connectionPool.ensureConnection(meta);
+          const tokenSettings =
+            opts.settings && Object.keys(opts.settings).length
+              ? (opts.settings as unknown as DailyTaskSettings)
+              : loadTokenSettings(tokenId);
+          const subRunId = await runDailyTasks(tokenId, tokenSettings);
+          taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
+        } finally {
+          connectionPool.endTask(tokenId);
+        }
+      } catch (err) {
+        taskLog({ runId: batchId, tokenId, level: 'error', message: `${tokenName} 失败: ${(err as Error).message}` });
       }
-    } catch (err) {
-      taskLog({ runId: batchId, tokenId, level: 'error', message: `${tokenName} 失败: ${(err as Error).message}` });
-    }
+    });
     taskProgress(batchId, i + 1, opts.tokenIds.length, tokenName);
   }
 
