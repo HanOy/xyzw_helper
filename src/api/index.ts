@@ -104,6 +104,16 @@ export const api = {
   weixin: {
     login: (code: string) => request.post('/weixin/login', { code }),
   },
+  scheduled: {
+    list: () => request.get('/scheduled-tasks'),
+    create: (payload: unknown) => request.post('/scheduled-tasks', payload),
+    get: (id: string) => request.get(`/scheduled-tasks/${id}`),
+    update: (id: string, payload: unknown) => request.put(`/scheduled-tasks/${id}`, payload),
+    remove: (id: string) => request.delete(`/scheduled-tasks/${id}`),
+    toggle: (id: string, enabled: boolean) =>
+      request.post(`/scheduled-tasks/${id}/toggle`, { enabled }),
+    run: (id: string) => request.post(`/scheduled-tasks/${id}/run`),
+  },
 };
 
 export default api;

@@ -45,12 +45,6 @@ const my_routes = [
         }),
       },
       {
-        path: 'legion-war',
-        name: 'LegionWar',
-        component: () => import('@/views/LegionWar.vue'),
-        meta: { title: '实时盐场', requiresToken: true },
-      },
-      {
         path: 'profile',
         name: 'Profile',
         component: () => import('@/views/Profile.vue'),

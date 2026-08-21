@@ -83,6 +83,25 @@ CREATE TABLE IF NOT EXISTS session_keys (
   expires_at TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL,
+  run_type        TEXT NOT NULL,
+  run_time        TEXT,
+  cron_expression TEXT,
+  token_ids       TEXT NOT NULL,
+  selected_tasks  TEXT,
+  task_type       TEXT NOT NULL DEFAULT 'daily',
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  last_run_at     TEXT,
+  last_status     TEXT,
+  last_error      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled);
 `;
 
 export const db = new Database(CONFIG.dbPath);

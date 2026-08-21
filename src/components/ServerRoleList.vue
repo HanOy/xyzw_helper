@@ -58,7 +58,13 @@
 import { computed, h, ref, watch, nextTick } from "vue";
 import { NCard, NDataTable, NButton, NInput, NIcon } from "naive-ui";
 import { Search } from "@vicons/ionicons5";
-import { formatPower } from "@/utils/legionWar";
+
+const formatPower = (power: number): string => {
+  if (!power) return "0";
+  if (power >= 100000000) return (power / 100000000).toFixed(2) + "亿";
+  if (power >= 10000) return (power / 10000).toFixed(2) + "万";
+  return power.toString();
+};
 
 const SearchIcon = Search;
 const serverSearchKeyword = ref("");

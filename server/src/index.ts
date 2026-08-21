@@ -25,7 +25,9 @@ import { registerTaskRoutes } from './api/task.routes.js';
 import { registerBatchRoutes } from './api/batch.routes.js';
 import { registerWeixinRoutes } from './api/weixin.routes.js';
 import { registerHortorRoutes } from './api/hortor.routes.js';
+import { registerScheduledRoutes } from './api/scheduled.routes.js';
 import { seedTasksIfNeeded } from './tasks/taskRunner.js';
+import { startScheduler, stopScheduler } from './tasks/scheduler.js';
 import { connectionPool } from './game/poolSingleton.js';
 
 async function promptPassword(): Promise<string> {
@@ -139,6 +141,7 @@ async function bootstrap() {
   registerBatchRoutes(app);
   registerWeixinRoutes(app);
   registerHortorRoutes(app);
+  registerScheduledRoutes(app);
 
   app.get('/api/health', async () => ({ ok: true, ts: Date.now() }));
 
@@ -166,8 +169,11 @@ async function bootstrap() {
   await app.listen({ port: CONFIG.port, host: CONFIG.host });
   logger.info({ port: CONFIG.port, host: CONFIG.host }, 'server listening');
 
+  startScheduler();
+
   const shutdown = async () => {
     logger.info('shutting down');
+    stopScheduler();
     await connectionPool.shutdown();
     await app.close();
     db.close();

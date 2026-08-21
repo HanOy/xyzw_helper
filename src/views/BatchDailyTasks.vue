@@ -2839,6 +2839,7 @@ import {
   h,
 } from "vue";
 import { useTokenStore, gameTokens, tokenGroups } from "@/stores/tokenStore";
+import { api } from "@/api";
 import { $emit } from "@/stores/events/index.ts";
 import { DailyTaskRunner } from "@/utils/dailyTaskRunner";
 import { preloadQuestions } from "@/utils/studyQuestionsFromJSON.js";
@@ -2870,7 +2871,6 @@ import {
   calculateNextRuns,
   calculateNextExecutionTime,
   formatTimeDifference,
-  matchesCronExpression,
   // Connection manager
   createConnectionManager,
   getActivityStatus,
@@ -3604,8 +3604,8 @@ const manualExecuteTask = async (task) => {
   executingTaskIds.value.push(task.id);
   try {
     message.info(`开始执行任务: ${task.name}`);
-    await executeScheduledTask(task);
-    message.success(`任务 ${task.name} 执行完成`);
+    await api.scheduled.run(task.id);
+    message.success(`任务 ${task.name} 已在后端执行`);
   } catch (e) {
     console.error(`执行任务 ${task.name} 失败:`, e);
     message.error(`任务 ${task.name} 执行失败`);
@@ -3616,35 +3616,27 @@ const manualExecuteTask = async (task) => {
   }
 };
 
-// Load scheduled tasks from localStorage
-const loadScheduledTasks = () => {
+// Load scheduled tasks from backend
+const loadScheduledTasks = async () => {
   try {
-    const saved = localStorage.getItem("scheduledTasks");
-
-    if (saved) {
-      const parsed = JSON.parse(saved);
-
-      // Ensure we have an array
-      scheduledTasks.value = Array.isArray(parsed) ? parsed : [];
-    } else {
-      scheduledTasks.value = [];
-    }
+    const res = await api.scheduled.list();
+    const list = res.data || [];
+    scheduledTasks.value = list.map((t) => ({
+      id: t.id,
+      name: t.name,
+      runType: t.runType,
+      runTime: t.runTime || null,
+      cronExpression: t.cronExpression || null,
+      selectedTokens: t.tokenIds || [],
+      selectedTasks: t.selectedTasks || [],
+      enabled: Boolean(t.enabled),
+      lastRunAt: t.lastRunAt || null,
+      lastStatus: t.lastStatus || null,
+      lastError: t.lastError || null,
+    }));
   } catch (error) {
     console.error("Failed to load scheduled tasks:", error);
     scheduledTasks.value = [];
-  }
-};
-
-// Save scheduled tasks to localStorage
-const saveScheduledTasks = () => {
-  try {
-    const dataToSave = JSON.stringify(scheduledTasks.value);
-
-    localStorage.setItem("scheduledTasks", dataToSave);
-    // Verify save was successful
-    const saved = localStorage.getItem("scheduledTasks");
-  } catch (error) {
-    console.error("Failed to save scheduled tasks:", error);
   }
 };
 
@@ -3721,7 +3713,7 @@ const parseCronExpression = (expression) => {
 // 注: calculateNextRuns 已从 @/utils/batch 导入
 
 // Save task (create or update)
-const saveTask = () => {
+const saveTask = async () => {
   if (!taskForm.name) {
     message.warning("请输入任务名称");
     return;
@@ -3778,57 +3770,60 @@ const saveTask = () => {
     enabled: taskForm.enabled,
   };
 
-  let isNew = !editingTask.value;
-
-  if (editingTask.value) {
-    // Update existing task
-    const index = scheduledTasks.value.findIndex(
-      (t) => t.id === editingTask.value.id,
-    );
-    if (index !== -1) {
-      scheduledTasks.value[index] = taskData;
+  try {
+    if (editingTask.value) {
+      await api.scheduled.update(editingTask.value.id, {
+        name: taskData.name,
+        runType: taskData.runType,
+        runTime: taskData.runTime,
+        cronExpression: taskData.cronExpression,
+        tokenIds: taskData.selectedTokens,
+        selectedTasks: taskData.selectedTasks,
+        enabled: taskData.enabled,
+      });
+    } else {
+      await api.scheduled.create({
+        name: taskData.name,
+        runType: taskData.runType,
+        runTime: taskData.runTime,
+        cronExpression: taskData.cronExpression,
+        tokenIds: taskData.selectedTokens,
+        selectedTasks: taskData.selectedTasks,
+        enabled: taskData.enabled,
+      });
     }
-  } else {
-    // Add new task
-    scheduledTasks.value.push(taskData);
+    await loadScheduledTasks();
+    // Add log entry for task save
+    addTaskSaveLog(taskData, !editingTask.value, addLog);
+    showTaskModal.value = false;
+    message.success("定时任务已保存");
+  } catch (e) {
+    console.error("保存定时任务失败:", e);
+    message.error("定时任务保存失败");
   }
-
-  saveScheduledTasks();
-
-  // Add log entry for task save
-  addTaskSaveLog(taskData, isNew, addLog);
-
-  showTaskModal.value = false;
-  message.success("定时任务已保存");
 };
 
 // Delete task
-const deleteTask = (taskId) => {
-  const task = scheduledTasks.value.find((t) => t.id === taskId);
-  if (task) {
-    scheduledTasks.value = scheduledTasks.value.filter((t) => t.id !== taskId);
-    saveScheduledTasks();
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务 ${task.name} 已删除 ===`,
-      type: "info",
-    });
+const deleteTask = async (taskId) => {
+  try {
+    await api.scheduled.remove(taskId);
+    await loadScheduledTasks();
     message.success("定时任务已删除");
+  } catch (e) {
+    console.error("删除定时任务失败:", e);
+    message.error("定时任务删除失败");
   }
 };
 
 // Toggle task enabled state
-const toggleTaskEnabled = (taskId, enabled) => {
-  const task = scheduledTasks.value.find((t) => t.id === taskId);
-  if (task) {
-    task.enabled = enabled;
-    saveScheduledTasks();
+const toggleTaskEnabled = async (taskId, enabled) => {
+  try {
+    await api.scheduled.toggle(taskId, enabled);
+    await loadScheduledTasks();
     message.success(`定时任务已${enabled ? "启用" : "禁用"}`);
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务 ${task.name} 已${enabled ? "启用" : "禁用"} ===`,
-      type: "info",
-    });
+  } catch (e) {
+    console.error("切换定时任务状态失败:", e);
+    message.error("操作失败");
   }
 };
 
@@ -3968,8 +3963,8 @@ const exportConfig = () => {
 // Import tokens and scheduled tasks configuration
 const importConfig = async ({ file }) => {
   try {
-    const reader = new FileReader();
-    reader.onload = (e) => {
+  const reader = new FileReader();
+  reader.onload = async (e) => {
       try {
         const importData = JSON.parse(e.target.result);
 
@@ -4019,15 +4014,31 @@ const importConfig = async ({ file }) => {
 
         // Import scheduled tasks
         if (Array.isArray(importData.scheduledTasks)) {
-          importData.scheduledTasks.forEach((task) => {
-            // Check if task already exists
+          for (const task of importData.scheduledTasks) {
+            if (!task.id) continue;
             const exists = scheduledTasks.value.some((t) => t.id === task.id);
-            if (!exists && task.id) {
-              scheduledTasks.value.push(task);
-              importedTasks++;
+            if (!exists) {
+              try {
+                await api.scheduled.create({
+                  name: task.name,
+                  runType: task.runType,
+                  runTime: task.runTime || null,
+                  cronExpression: task.cronExpression || null,
+                  tokenIds: Array.isArray(task.selectedTokens)
+                    ? task.selectedTokens
+                    : [],
+                  selectedTasks: Array.isArray(task.selectedTasks)
+                    ? task.selectedTasks
+                    : [],
+                  enabled: task.enabled !== false,
+                });
+                importedTasks++;
+              } catch (e) {
+                console.error("导入定时任务失败:", e);
+              }
             }
-          });
-          saveScheduledTasks();
+          }
+          await loadScheduledTasks();
         }
 
         // Import batch settings if provided
@@ -4174,38 +4185,11 @@ watch(
 );
 
 // Task scheduler variables - moved to component level scope
-const intervalId = ref(null);
-let lastTaskExecution = null;
 let healthCheckInterval = null;
 const pageLoadTime = Date.now();
 
 // Health check for the scheduler
 const healthCheck = () => {
-  // If interval is not running, restart it
-  if (!intervalId.value) {
-    console.error(
-      `[${new Date().toISOString()}] Task scheduler interval is not running, restarting...`,
-    );
-    startScheduler();
-  }
-
-  // Add a safety mechanism to prevent isRunning from being stuck
-  if (isRunning.value) {
-    const now = Date.now();
-    const tenMinutesAgo = now - 10 * 60 * 1000; // 10 minutes ago
-    if (lastTaskExecution && lastTaskExecution < tenMinutesAgo) {
-      console.error(
-        `[${new Date().toISOString()}] isRunning has been true for more than 10 minutes, resetting to false`,
-      );
-      isRunning.value = false;
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: "=== 检测到任务执行超时，已重置isRunning状态 ===",
-        type: "warning",
-      });
-    }
-  }
-
   // Check for page refresh
   if (batchSettings.enableRefresh && batchSettings.refreshInterval > 0) {
     const elapsedMinutes = (Date.now() - pageLoadTime) / 1000 / 60;
@@ -4226,97 +4210,13 @@ const healthCheck = () => {
 
 // Start the scheduler
 const startScheduler = () => {
-  // Clear any existing interval first
-  if (intervalId.value) {
-    clearInterval(intervalId.value);
-  }
-
-  // Check every 10 seconds instead of 60 seconds for more timely task execution
-  intervalId.value = setInterval(() => {
-    try {
-      const now = new Date();
-      const currentTime = now.toLocaleTimeString("zh-CN", {
-        hour12: false,
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      });
-
-      // Don't skip all tasks if isRunning is true, just skip individual task execution if already running
-      const tasksToRun = scheduledTasks.value.filter((task) => task.enabled);
-
-      if (tasksToRun.length === 0) {
-        return;
-      }
-
-      tasksToRun.forEach((task) => {
-        let shouldRun = false;
-        let reason = "";
-
-        if (task.runType === "daily") {
-          // Check if current time matches the scheduled time
-          const taskTime = task.runTime;
-          const nowTime = now.toLocaleTimeString("zh-CN", {
-            hour12: false,
-            hour: "2-digit",
-            minute: "2-digit",
-          });
-          shouldRun = nowTime === taskTime;
-          reason = `currentTime=${nowTime}, taskTime=${taskTime}, match=${shouldRun}`;
-        } else if (task.runType === "cron") {
-          // Improved cron expression parsing using shared utility
-          try {
-            shouldRun = matchesCronExpression(task.cronExpression, now);
-          } catch (error) {
-            console.error(
-              `[${new Date().toISOString()}] Error parsing cron expression ${task.cronExpression}:`,
-              error,
-            );
-            addLog({
-              time: currentTime,
-              message: `=== 解析定时任务 ${task.name} 的Cron表达式失败: ${error.message} ===`,
-              type: "error",
-            });
-            return;
-          }
-        }
-
-        if (shouldRun) {
-          // Check if the task was already executed in the last minute to avoid duplicate execution
-          const taskExecutionKey = `${task.id}_${now.getDate()}_${now.getHours()}_${now.getMinutes()}`;
-          const lastExecutionKey = localStorage.getItem(
-            `lastTaskExecution_${task.id}`,
-          );
-
-          if (lastExecutionKey !== taskExecutionKey) {
-            // Update last execution time
-            localStorage.setItem(
-              `lastTaskExecution_${task.id}`,
-              taskExecutionKey,
-            );
-
-            // Execute the task
-            lastTaskExecution = Date.now();
-            executeScheduledTask(task);
-          } else {
-            // Only log once per minute to avoid spamming logs
-            // But since we check every 10s, this might log multiple times if we don't track logged state
-            // For now, we can skip logging "already executed" to keep logs clean
-          }
-        }
-      });
-    } catch (error) {
-      console.error(
-        `[${new Date().toISOString()}] Error in task scheduler:`,
-        error,
-      );
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务调度服务发生错误: ${error.message} ===`,
-        type: "error",
-      });
-    }
-  }, 10000); // Check every 10 seconds
+  // 定时任务的触发与执行已迁移到后端 (server/src/tasks/scheduler.ts)，
+  // 由后端调度器按配置时间自动调用 runBatchDailyTasks。前端不再轮询执行。
+  addLog({
+    time: new Date().toLocaleTimeString(),
+    message: "=== 定时任务已交由后端调度执行 ===",
+    type: "info",
+  });
 };
 
 // Token刷新等待处理函数
@@ -4349,17 +4249,6 @@ onBeforeUnmount(() => {
   // 移除Token刷新等待事件监听
   $emit.off("token:refresh:waiting", handleTokenRefreshWaiting);
 
-  // Cleanup task scheduler intervals
-  if (intervalId.value) {
-    clearInterval(intervalId.value);
-    intervalId.value = null;
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "=== 定时任务调度服务已停止 ===",
-      type: "info",
-    });
-  }
-
   if (healthCheckInterval) {
     clearInterval(healthCheckInterval);
     healthCheckInterval = null;
@@ -4388,256 +4277,6 @@ const scheduleTaskExecution = () => {
   healthCheck();
 };
 
-// Verify task dependencies - 只验证基础依赖，WebSocket连接由具体任务函数处理
-const verifyTaskDependencies = async (task) => {
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 开始验证定时任务 ${task.name} 的依赖 ===`,
-    type: "info",
-  });
-
-  // Verify localStorage is available
-  try {
-    localStorage.setItem("test", "test");
-    localStorage.removeItem("test");
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "✅ localStorage可用",
-      type: "info",
-    });
-  } catch (error) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `❌ localStorage不可用: ${error.message}`,
-      type: "error",
-    });
-    return false;
-  }
-
-  // Verify token store is available
-  if (!tokenStore || !tokenStore.gameTokens) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: "❌ Token存储不可用",
-      type: "error",
-    });
-    return false;
-  }
-
-  // Verify task functions exist
-  for (const taskName of task.selectedTasks) {
-    const taskFunction = eval(taskName);
-    if (typeof taskFunction !== "function") {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `❌ 任务函数不存在: ${taskName}`,
-        type: "error",
-      });
-      return false;
-    }
-  }
-
-  // 直接使用所有选中的token，WebSocket连接由具体任务函数内部管理
-  // ensureConnection函数会自动处理并行连接和连接池管理
-  const connectedTokens = task.selectedTokens.map((tokenId) => {
-    const tokenName =
-      tokenStore.gameTokens.find((t) => t.id === tokenId)?.name || tokenId;
-    return { id: tokenId, name: tokenName };
-  });
-
-  // Log connection status
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `✅ 将使用 ${connectedTokens.length} 个账号执行任务`,
-    type: "info",
-  });
-
-  // Store connected tokens for execution
-  task.connectedTokens = connectedTokens.map((t) => t.id);
-
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 定时任务 ${task.name} 的依赖验证通过，将执行 ${connectedTokens.length} 个账号 ===`,
-    type: "success",
-  });
-  return true;
-};
-
-// Execute a scheduled task with dependency verification
-const executeScheduledTask = async (task) => {
-  addLog({
-    time: new Date().toLocaleTimeString(),
-    message: `=== 开始执行定时任务: ${task.name} ===`,
-    type: "info",
-  });
-
-  try {
-    // Verify dependencies before executing task
-    const dependenciesValid = await verifyTaskDependencies(task);
-    if (!dependenciesValid) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务 ${task.name} 依赖验证失败，取消执行 ===`,
-        type: "error",
-      });
-      return;
-    }
-
-    // Filter out tokens that don't exist in current tokens.value
-    const availableTokens = (
-      task.connectedTokens || task.selectedTokens
-    ).filter((tokenId) => {
-      return tokens.value.some((t) => t.id === tokenId);
-    });
-
-    const missingTokens = (task.connectedTokens || task.selectedTokens).filter(
-      (tokenId) => {
-        return !tokens.value.some((t) => t.id === tokenId);
-      },
-    );
-
-    if (missingTokens.length > 0) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `⚠️  跳过不存在的Token: ${missingTokens.join(", ")}`,
-        type: "warning",
-      });
-    }
-
-    if (availableTokens.length === 0) {
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `=== 定时任务 ${task.name} 没有可用的Token，取消执行 ===`,
-        type: "error",
-      });
-      return;
-    }
-
-    // Always use the latest selectedTokens from the task that exist in current tokens.value
-    selectedTokens.value = [...availableTokens];
-
-    // Execute selected tasks in parallel
-    const taskPromises = task.selectedTasks.map(async (taskName) => {
-      if (shouldStop.value) return;
-
-      if (
-        ["batchbaoku45", "batchbaoku13"].includes(taskName) &&
-        !isbaokuActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在宝库开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        ["batchmengjing", "batchBuyDreamItems"].includes(taskName) &&
-        !ismengjingActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在梦境开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        ["batchSmartSendCar", "batchClaimCars"].includes(taskName) &&
-        !isCarActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在发车开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        ["batchTopUpArena", "batcharenafight"].includes(taskName) &&
-        !isarenaActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在竞技场开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      if (
-        [
-          "climbWeirdTower",
-          "batchUseItems",
-          "batchMergeItems",
-          "batchClaimFreeEnergy",
-        ].includes(taskName) &&
-        !isWeirdTowerActivityOpen.value
-      ) {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `跳过任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName} (不在怪异塔开放时间)`,
-          type: "warning",
-        });
-        return;
-      }
-
-      addLog({
-        time: new Date().toLocaleTimeString(),
-        message: `执行任务: ${availableTasks.find((t) => t.value === taskName)?.label || taskName}`,
-        type: "info",
-      });
-
-      // Call the task function dynamically
-      const taskFunction = eval(taskName);
-      if (typeof taskFunction === "function") {
-        // For batch operations, pass isScheduledTask = true
-        // 具体的batch任务函数内部会使用ensureConnection管理并行连接
-        if (
-          [
-            "batchOpenBox",
-            "batchOpenBoxByPoints",
-            "batchFish",
-            "batchRecruit",
-            "batchLegacyGiftSendEnhanced",
-          ].includes(taskName)
-        ) {
-          await taskFunction(true);
-        } else {
-          await taskFunction();
-        }
-      } else {
-        addLog({
-          time: new Date().toLocaleTimeString(),
-          message: `任务函数不存在: ${taskName}`,
-          type: "error",
-        });
-      }
-    });
-
-    // Wait for all tasks to complete
-    await Promise.all(taskPromises);
-
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务执行完成: ${task.name} ===`,
-      type: "success",
-    });
-  } catch (error) {
-    addLog({
-      time: new Date().toLocaleTimeString(),
-      message: `=== 定时任务执行失败: ${error.message} ===`,
-      type: "error",
-    });
-    console.error(
-      `[${new Date().toISOString()}] Error executing scheduled task ${task.name}:`,
-      error,
-    );
-  }
-};
 
 // 注: boxTypeOptions, fishTypeOptions 已从 @/utils/batch 导入
 

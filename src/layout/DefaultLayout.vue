@@ -44,12 +44,6 @@
             </n-icon>
             <span>批量日常</span>
           </router-link>
-          <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
-            <n-icon>
-              <LockOpen />
-            </n-icon>
-            <span>实时盐场</span>
-          </router-link>
         </div>
 
         <div class="nav-user">
@@ -120,12 +114,6 @@
           </n-icon>
           <span>批量日常</span>
         </router-link>
-        <router-link to="/admin/legion-war" class="nav-item" active-class="active"  v-if="isNowInLegionWarTime()" >
-            <n-icon>
-              <LockOpen />
-            </n-icon>
-            <span>实时盐场</span>
-          </router-link>
         <router-link
           to="/admin/profile"
           class="drawer-item"
@@ -165,7 +153,6 @@ import {
 import { useRouter } from 'vue-router'
 import { useMessage } from 'naive-ui'
 import { ref } from 'vue'
-import { isNowInLegionWarTime } from '@/utils/clubBattleUtils'
 
 const tokenStore = useTokenStore();
 const router = useRouter();
