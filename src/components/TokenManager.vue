@@ -131,9 +131,6 @@
     </template>
     <!-- 批量操作 -->
     <template #actions>
-      <n-button type="warning" @click="cleanExpiredTokens">
-        清理过期Token
-      </n-button>
       <n-button type="error" @click="clearAllTokens"> 清除所有Token </n-button>
     </template>
   </a-card>
@@ -533,19 +530,6 @@ const importTokens = ({ file }) => {
     }
   };
   reader.readAsText(file.file);
-};
-
-const cleanExpiredTokens = () => {
-  dialog.info({
-    title: "清理过期Token",
-    content: "确定要清理超过24小时未使用的Token吗？",
-    positiveText: "确定",
-    negativeText: "取消",
-    onPositiveClick: () => {
-      const cleanedCount = localTokenStore.cleanExpiredTokens();
-      message.success(`已清理 ${cleanedCount} 个过期Token`);
-    },
-  });
 };
 
 const clearAllTokens = () => {

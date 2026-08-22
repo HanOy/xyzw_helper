@@ -815,7 +815,6 @@ const bulkOptions = [
   { label: "更新token信息", key: "updateInfo" },
   { label: "导出所有Token", key: "export" },
   { label: "导入Token文件", key: "import" },
-  { label: "清理过期Token", key: "clean" },
   { label: "断开所有连接", key: "disconnect" },
   { label: "清除所有Token", key: "clear" },
 ];
@@ -1329,9 +1328,6 @@ const handleBulkAction = (key) => {
     case "import":
       importTokenFile();
       break;
-    case "clean":
-      cleanExpiredTokens();
-      break;
     case "disconnect":
       disconnectAll();
       break;
@@ -1383,11 +1379,6 @@ const importTokenFile = () => {
     }
   };
   input.click();
-};
-
-const cleanExpiredTokens = async () => {
-  const count = await tokenStore.cleanExpiredTokens();
-  message.success(`已清理 ${count} 个过期Token`);
 };
 
 const disconnectAll = () => {

@@ -233,10 +233,6 @@ export const useTokensStore = defineStore('tokens', () => {
     };
   }
 
-  async function cleanExpiredTokens(): Promise<number> {
-    return 0;
-  }
-
   async function clearAllTokens(): Promise<void> {
     for (const t of [...tokens.value]) {
       await removeToken(t.id).catch(() => undefined);
@@ -534,7 +530,6 @@ export const useTokensStore = defineStore('tokens', () => {
     upgradeTokenToPermanent,
     exportTokens,
     importTokens,
-    cleanExpiredTokens,
     clearAllTokens,
     importBase64Token,
     sendMessage,
