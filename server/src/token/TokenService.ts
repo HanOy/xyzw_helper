@@ -110,6 +110,17 @@ export class TokenService {
     return [single];
   }
 
+  private resolveImportTokenId(name: string, computedId: string): string {
+    // token id 由 MD5(整个 bin) 派生,而 bin 内含会过期的会话 p。
+    // 过期后重扫 → p 变化 → id 变化 → 旧 token 残留、定时任务等关联断裂。
+    // 按 name 唯一匹配复用已有 id,使重扫走 ON CONFLICT 原地更新而非新建记录。
+    const rows = db
+      .prepare('SELECT id FROM tokens WHERE name = ?')
+      .all(name) as Array<{ id: string }>;
+    if (rows.length === 1) return rows[0].id;
+    return computedId;
+  }
+
   private async importSingle(req: TokenImportBinRequest | TokenImportManualRequest | TokenImportUrlRequest): Promise<TokenPublic> {
     let binBuf: Buffer;
     let sourceUrl: string | null = null;
@@ -123,7 +134,7 @@ export class TokenService {
     }
 
     const parsed = parseBin(binBuf);
-    const id = getTokenId(binBuf);
+    const id = this.resolveImportTokenId(req.name, getTokenId(binBuf));
 
     const auth = await transformToken(binBuf);
     const encrypted = JSON.stringify(auth);
@@ -195,7 +206,7 @@ export class TokenService {
     for (const item of req.names) {
       const modified: StoredBin = { bin: Buffer.from(masterBin), serverId: Number(item.serverId) };
       modified.bin = replaceServerId(modified.bin, Number(item.serverId));
-      const id = getTokenId(modified.bin);
+      const id = this.resolveImportTokenId(item.name, getTokenId(modified.bin));
       const auth = await transformToken(modified.bin);
       const vault = getVault();
       const enc = vault.encrypt(JSON.stringify(auth));
