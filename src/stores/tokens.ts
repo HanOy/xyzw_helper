@@ -294,8 +294,17 @@ export const useTokensStore = defineStore('tokens', () => {
     battleVersion.value = version;
   }
 
-  function sendGetRoleInfo(tokenId: string): void {
-    sendMessage(tokenId, 'role_getroleinfo', {});
+  async function sendGetRoleInfo(tokenId: string, params: Record<string, unknown> = {}): Promise<unknown> {
+    try {
+      const roleInfo = await sendMessageWithPromise(tokenId, 'role_getroleinfo', params, 15000);
+      if (roleInfo) {
+        gameData.value.roleInfo = roleInfo as Record<string, unknown>;
+        gameData.value.lastUpdated = new Date().toISOString();
+      }
+      return roleInfo;
+    } catch {
+      return null;
+    }
   }
 
   function sendGameMessage(tokenId: string, cmd: string, params?: Record<string, unknown>): void {
