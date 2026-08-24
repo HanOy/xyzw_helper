@@ -40,21 +40,16 @@ export function runBatchOperations(
       try {
         const meta = tokenService.toConnectionMeta(tokenId);
         if (!meta) throw new Error('token 不存在');
-        connectionPool.beginTask(tokenId);
-        try {
-          await connectionPool.ensureConnection(meta);
-          const ctx = new BatchContext({
-            runId: batchId,
-            tokenId,
-            batchSettings: opts.settings,
-            shouldStop: () => isCancelled(batchId),
-          });
-          await ctx.getRoleInfo();
-          await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
-          taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
-        } finally {
-          connectionPool.endTask(tokenId);
-        }
+        await connectionPool.ensureConnection(meta);
+        const ctx = new BatchContext({
+          runId: batchId,
+          tokenId,
+          batchSettings: opts.settings,
+          shouldStop: () => isCancelled(batchId),
+        });
+        await ctx.getRoleInfo();
+        await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
+        taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
       } catch (err) {
         taskLog({
           runId: batchId,

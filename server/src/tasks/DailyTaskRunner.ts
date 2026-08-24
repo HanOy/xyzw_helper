@@ -155,7 +155,6 @@ export async function runDailyTasks(tokenId: string, customSettings?: DailyTaskS
   updateRun(runId, { status: 'running', startedAt: new Date().toISOString(), total: 0 });
 
   try {
-    connectionPool.beginTask(tokenId);
     const meta = tokenService.toConnectionMeta(tokenId);
     if (!meta) throw new Error('token 不存在');
     await connectionPool.ensureConnection(meta);
@@ -446,8 +445,6 @@ export async function runDailyTasks(tokenId: string, customSettings?: DailyTaskS
     log.error({ err: (err as Error).message }, 'daily run failed');
     taskLog({ runId, tokenId, level: 'error', message: (err as Error).message });
     updateRun(runId, { status: 'failed', finishedAt: new Date().toISOString(), error: (err as Error).message });
-  } finally {
-    connectionPool.endTask(tokenId);
   }
   return runId;
 }

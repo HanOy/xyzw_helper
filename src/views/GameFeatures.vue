@@ -12,7 +12,7 @@
           </div>
 
           <div class="header-actions">
-            <div class="connection-status" :class="connectionStatus">
+              <div class="connection-status" :class="connectionStatusClass">
               <n-icon>
                 <CloudDone />
               </n-icon>
@@ -26,10 +26,32 @@
     <!-- 反馈提示区域 -->
     <div v-if="showFeedback" class="feedback-section" />
 
-    <!-- 功能模块网格 -->
-    <div class="features-grid-section">
+    <!-- 功能模块网格：仅已连接时展示 -->
+    <div class="features-grid-section" v-if="isConnected">
       <div class="container">
         <GameStatus />
+      </div>
+    </div>
+
+    <!-- 未连接 / 异常时友好提示，不自动重连 -->
+    <div class="blocked-section" v-else>
+      <div class="container">
+        <n-card class="blocked-card">
+          <n-result
+            :status="isError ? 'error' : (isTransient ? 'info' : 'warning')"
+            :title="blockedTitle"
+            :description="blockedDesc"
+          >
+            <template #footer>
+              <n-space justify="center">
+                <n-button @click="goToTokens">前往 Token 管理</n-button>
+                <n-button v-if="!isTransient" type="primary" @click="toggleConnection">
+                  {{ isError ? '手动重连' : '连接' }}
+                </n-button>
+              </n-space>
+            </template>
+          </n-result>
+        </n-card>
       </div>
     </div>
 
@@ -79,26 +101,50 @@ const showFeedback = ref(true);
 const lastActivity = ref(null);
 
 // 计算属性
-const connectionStatus = computed(() => {
+const rawStatus = computed(() => {
   if (!tokenStore.selectedToken) return "disconnected";
-  const status = tokenStore.getWebSocketStatus(tokenStore.selectedToken.id);
-  return status === "connected" ? "connected" : "disconnected";
+  return tokenStore.getWebSocketStatus(tokenStore.selectedToken.id);
+});
+
+const isConnected = computed(() => rawStatus.value === "connected");
+const isError = computed(() => rawStatus.value === "error");
+const isTransient = computed(
+  () => rawStatus.value === "connecting" || rawStatus.value === "reconnecting",
+);
+
+const connectionStatusClass = computed(() => {
+  if (rawStatus.value === "connected") return "connected";
+  if (rawStatus.value === "error") return "error";
+  return "disconnected";
 });
 
 const connectionStatusText = computed(() => {
   if (!tokenStore.selectedToken) return "未选择Token";
-  const status = tokenStore.getWebSocketStatus(tokenStore.selectedToken.id);
-  return status === "connected" ? "已连接" : "未连接";
+  switch (rawStatus.value) {
+    case "connected": return "已连接";
+    case "connecting": return "连接中";
+    case "reconnecting": return "重连中";
+    case "error": return "连接异常";
+    default: return "未连接";
+  }
 });
 
 const connectionClass = computed(() => {
-  return connectionStatus.value === "connected"
-    ? "status-connected"
-    : "status-disconnected";
+  return isConnected.value ? "status-connected" : "status-disconnected";
 });
 
-const isConnected = computed(() => {
-  return connectionStatus.value === "connected";
+const blockedTitle = computed(() => {
+  if (isError.value) return "Token 连接异常";
+  if (isTransient.value) return "正在连接";
+  return "Token 未连接";
+});
+
+const blockedDesc = computed(() => {
+  if (isError.value)
+    return "该 Token 在 5 分钟内未能恢复连接，已停止自动重连。请检查网络或 Token 是否过期，并手动重连后再使用游戏功能。";
+  if (isTransient.value)
+    return "正在尝试连接游戏服务器，请稍候…";
+  return "当前 Token 未连接，请先连接后再使用游戏功能。";
 });
 
 // 方法
@@ -141,26 +187,24 @@ const disconnectWebSocket = () => {
 };
 
 const toggleConnection = () => {
-  if (connectionStatus.value === "connected") {
+  if (isConnected.value) {
     disconnectWebSocket();
   } else {
     connectWebSocket();
   }
 };
 
+const goToTokens = () => {
+  router.push("/admin/tokens");
+};
+
 // handleWebSocketMessage 已移除，消息处理由 tokenStore 负责
 
 // 生命周期
 onMounted(() => {
-  // 检查是否需要连接 WebSocket
-  if (tokenStore.selectedToken) {
-    const status = tokenStore.getWebSocketStatus(tokenStore.selectedToken.id);
-    if (status !== "connected") {
-      connectWebSocket();
-    } else {
-      // 如果已连接，立即获取初始数据
-      initializeGameData();
-    }
+  // 进入游戏功能页不自动连接：连接由 Token 管理发起，断开后不自动重连
+  if (tokenStore.selectedToken && isConnected.value) {
+    initializeGameData();
   }
 });
 
@@ -316,6 +360,11 @@ onUnmounted(() => {
   }
 
   &.disconnected {
+    background: rgba(208, 48, 80, 0.1);
+    color: var(--error-color);
+  }
+
+  &.error {
     background: rgba(208, 48, 80, 0.1);
     color: var(--error-color);
   }
@@ -549,6 +598,10 @@ onUnmounted(() => {
 }
 
 .status-disconnected {
+  color: var(--error-color);
+}
+
+.status-error {
   color: var(--error-color);
 }
 

@@ -60,18 +60,13 @@ export function runBatchDailyTasks(
       try {
         const meta = tokenService.toConnectionMeta(tokenId);
         if (!meta) throw new Error('token 不存在');
-        connectionPool.beginTask(tokenId);
-        try {
-          await connectionPool.ensureConnection(meta);
-          const tokenSettings =
-            opts.settings && Object.keys(opts.settings).length
-              ? (opts.settings as unknown as DailyTaskSettings)
-              : loadTokenSettings(tokenId);
-          const subRunId = await runDailyTasks(tokenId, tokenSettings);
-          taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
-        } finally {
-          connectionPool.endTask(tokenId);
-        }
+        await connectionPool.ensureConnection(meta);
+        const tokenSettings =
+          opts.settings && Object.keys(opts.settings).length
+            ? (opts.settings as unknown as DailyTaskSettings)
+            : loadTokenSettings(tokenId);
+        const subRunId = await runDailyTasks(tokenId, tokenSettings);
+        taskLog({ runId: batchId, tokenId, level: 'info', message: `${tokenName} 日常任务完成 (${subRunId})` });
       } catch (err) {
         taskLog({ runId: batchId, tokenId, level: 'error', message: `${tokenName} 失败: ${(err as Error).message}` });
       }

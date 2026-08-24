@@ -15,7 +15,6 @@ export interface GameSocketOptions {
   url: string;
   heartbeatMs?: number;
   sendQueueIntervalMs?: number;
-  maxReconnectAttempts?: number;
   reconnectDelayMs?: number;
   reconnectStableMs?: number;
   maxReconnectDelayMs?: number;
@@ -57,11 +56,13 @@ export interface GameMessage {
 
 const HEARTBEAT_CMD = '_sys/ack';
 
+/** 非手动掉线后持续重连的时间窗口：超过则置“异常”并停止尝试 */
+const RECONNECT_WINDOW_MS = 5 * 60 * 1000;
+
 export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly url: string;
   private readonly heartbeatMs: number;
   private readonly sendQueueIntervalMs: number;
-  private readonly maxReconnectAttempts: number;
   private readonly reconnectDelayMs: number;
   private readonly reconnectStableMs: number;
   private readonly maxReconnectDelayMs: number;
@@ -73,9 +74,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private seq = 0;
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectDeadline: number | null = null;
   private intentionalClose = false;
-  /** 有活跃任务或订阅者时为真：掉线后持续重连(不受 maxReconnectAttempts 上限约束) */
-  persistent = false;
 
   private sendQueue: QueueTask[] = [];
   private sendTimer: NodeJS.Timeout | null = null;
@@ -89,7 +89,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.url = options.url;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
-    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
     this.reconnectStableMs = options.reconnectStableMs ?? 30000;
     this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 60000;
@@ -139,6 +138,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         if (this.stableTimer) clearTimeout(this.stableTimer);
         this.stableTimer = setTimeout(() => {
           this.reconnectAttempts = 0;
+          this.reconnectDeadline = null;
           wsLog.info('连接已稳定，重置重连计数');
         }, this.reconnectStableMs);
         resolve();
@@ -199,6 +199,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
   disconnect(): void {
     this.intentionalClose = true;
+    this.reconnectDeadline = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -374,26 +375,35 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   }
 
   private scheduleReconnect(): void {
-    if (this.intentionalClose) return;
-    // error+close 可能连续触发，用 reconnectTimer 去重，避免重复排程
-    if (this.reconnectTimer) return;
-    // 空闲连接才受重连次数上限约束(避免无限刷日志)；
-    // 有活跃任务/订阅者时必须持续重试，否则正在跑的批量任务会卡死。
-    if (!this.persistent && this.reconnectAttempts >= this.maxReconnectAttempts) {
-      wsLog.warn(
-        { attempts: this.reconnectAttempts },
-        '重连次数已耗尽，停止自动重连（请检查连接/鉴权配置或手动重连）',
-      );
-      this.setStatus('error', `重连失败 ${this.reconnectAttempts} 次，已停止自动重连`);
+    // 手动断开：绝不自动重连，等待用户手动连接
+    if (this.intentionalClose) {
+      this.setStatus('disconnected');
       return;
     }
+    // error+close 可能连续触发，用 reconnectTimer 去重，避免重复排程
+    if (this.reconnectTimer) return;
+
+    // 非手动掉线：在 5 分钟窗口内持续重试；窗口结束仍未连上则置“异常”并停止
+    if (this.reconnectDeadline == null) {
+      this.reconnectDeadline = Date.now() + RECONNECT_WINDOW_MS;
+    }
+    if (Date.now() >= this.reconnectDeadline) {
+      wsLog.warn('重连窗口(5分钟)已结束，停止自动重连');
+      this.setStatus('error', '重连超时：5 分钟内无法恢复连接，请检查网络/鉴权配置或手动重连');
+      this.reconnectDeadline = null;
+      return;
+    }
+
     this.reconnectAttempts++;
-    const delay = Math.min(
+    const backoff = Math.min(
       this.reconnectDelayMs * 2 ** (this.reconnectAttempts - 1),
       this.maxReconnectDelayMs,
     );
+    const remaining = this.reconnectDeadline - Date.now();
+    const delay = Math.max(1000, Math.min(backoff, remaining));
+    this.setStatus('reconnecting', '连接已断开，正在尝试重连...');
     wsLog.info(
-      { attempt: this.reconnectAttempts, max: this.maxReconnectAttempts, delayMs: delay, persistent: this.persistent },
+      { attempt: this.reconnectAttempts, delayMs: delay, deadline: this.reconnectDeadline },
       '计划重连',
     );
     this.reconnectTimer = setTimeout(async () => {
@@ -402,7 +412,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       try {
         await this.connect();
       } catch {
-        // status already updated
+        // status already updated；onClose 会再次排程
       }
     }, delay);
   }

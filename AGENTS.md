@@ -35,7 +35,7 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 | 日志 | pino | 写入文件 + SSE 推前端 |
 | 登录后默认落地页 | `/admin/tokens` | Token 管理即首页 tab |
 | 游戏功能 / 批量日常 | 需要 Token 才能进入 | 无 Token 时重定向到 `/admin/tokens` |
-| 空闲自动断连 | 默认 5 分钟 | `XYZW_IDLE_TIMEOUT_MS` 可配, 0=关闭; 有 SSE 订阅或任务运行时保持连接 |
+| WS 断连策略 | 不自动掉线 | 后端不主动断开空闲连接; 手动断开(`intentionalClose`)后不再自动重连, 需用户手动连接; 非手动掉线在 5 分钟内持续重连, 超时置 `error`(异常)并停止 |
 | 旧 Python bin 服务 | 删除 | 用户自建 URL 端点 |
 | Cloudflare worker.js | 删除 | |
 | src/xyzw/ (1.7M + 2.3M) | 删除 | 是 cocos2d-js-min.js 和游戏入口, 死代码 |
@@ -187,7 +187,7 @@ type SseEvent =
 - WS 连接池: max 10 并发, 500ms 间隔 (可配置)
 - 任务运行: 同 token 串行, 跨 token 受 WS 池约束
 - 任务取消: 写 `task_runs.cancelled_at`, runner 主循环检查
-- 空闲自动断连: Web 有 SSE 订阅保持连接; 无订阅/无任务且超过 `XYZW_IDLE_TIMEOUT_MS` (默认 5 分钟, 0=关闭) 自动断开; 任务结束后保持连接等待空闲超时
+- WS 断连/重连: 后端**不主动断开**空闲连接(无自动掉线); 手动断开(`disconnect()` 置 `intentionalClose`)后不再自动重连, 直到用户在 Token 管理手动连接; 非手动掉线(服务端关闭/网络异常)在 `RECONNECT_WINDOW_MS = 5 分钟` 窗口内持续重连(指数退避, 状态 `reconnecting`), 窗口结束仍连不上则置 `error`(前端显示"连接异常")并停止尝试; 稳定连接 `reconnectStableMs`(30s)后重置重连计数与窗口
 
 ## 代码风格
 
