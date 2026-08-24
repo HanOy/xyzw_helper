@@ -83,8 +83,8 @@ const router = createRouter({
 
 router.beforeEach(async (to, from, next) => {
   document.title = to.meta.title
-    ? `${to.meta.title} - XYZW 游戏管理系统`
-    : 'XYZW 游戏管理系统';
+    ? `${to.meta.title} - XYZW 管理系统`
+    : 'XYZW 管理系统';
 
   const hasAuth = !!getStoredToken();
   if (to.meta.requiresToken && !hasAuth) {

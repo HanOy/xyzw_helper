@@ -59,6 +59,9 @@ const HEARTBEAT_CMD = '_sys/ack';
 /** 非手动掉线后持续重连的时间窗口：超过则置“异常”并停止尝试 */
 const RECONNECT_WINDOW_MS = 5 * 60 * 1000;
 
+/** 会话探活间隔：定期发送只读指令验证游戏会话是否仍然有效 */
+const PROBE_INTERVAL_MS = 90 * 1000;
+
 export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly url: string;
   private readonly heartbeatMs: number;
@@ -67,6 +70,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly reconnectStableMs: number;
   private readonly maxReconnectDelayMs: number;
   private stableTimer: NodeJS.Timeout | null = null;
+  private probeTimer: NodeJS.Timeout | null = null;
 
   private ws: WebSocket | null = null;
   private status: GameSocketStatus = 'disconnected';
@@ -134,6 +138,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
+        this.startProbe();
         // 仅当连接稳定一段时间后才重置重连计数，避免"连上即断"导致无限重连
         if (this.stableTimer) clearTimeout(this.stableTimer);
         this.stableTimer = setTimeout(() => {
@@ -234,6 +239,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       clearTimeout(this.stableTimer);
       this.stableTimer = null;
     }
+    this.stopProbe();
     for (const [seq, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(new Error('connection closed'));
@@ -260,6 +266,28 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         wsLog.error({ err: err.message, cmd: task.cmd }, 'task failed');
       });
     }, this.sendQueueIntervalMs);
+  }
+
+  private startProbe(): void {
+    this.stopProbe();
+    void this.probe();
+    this.probeTimer = setInterval(() => void this.probe(), PROBE_INTERVAL_MS);
+  }
+
+  private stopProbe(): void {
+    if (this.probeTimer) {
+      clearInterval(this.probeTimer);
+      this.probeTimer = null;
+    }
+  }
+
+  private async probe(): Promise<void> {
+    try {
+      await this.send('role_getroleinfo', {}, 5000);
+    } catch {
+      // 探活失败：会话可能已失效，若连接确实数去则关闭以触发重连
+      if (!this.isConnected()) this.ws?.close();
+    }
   }
 
   private async executeTask(task: QueueTask): Promise<void> {

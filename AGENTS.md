@@ -188,6 +188,7 @@ type SseEvent =
 - 任务运行: 同 token 串行, 跨 token 受 WS 池约束
 - 任务取消: 写 `task_runs.cancelled_at`, runner 主循环检查
 - WS 断连/重连: 后端**不主动断开**空闲连接(无自动掉线); 手动断开(`disconnect()` 置 `intentionalClose`)后不再自动重连, 直到用户在 Token 管理手动连接; 非手动掉线(服务端关闭/网络异常)在 `RECONNECT_WINDOW_MS = 5 分钟` 窗口内持续重连(指数退避, 状态 `reconnecting`), 窗口结束仍连不上则置 `error`(前端显示"连接异常")并停止尝试; 稳定连接 `reconnectStableMs`(30s)后重置重连计数与窗口
+- 会话探活: 连接稳定后每 `PROBE_INTERVAL_MS`(~90s)发送只读指令 `role_getroleinfo` 验证游戏会话是否仍然有效; 探活失败且连接确实数去则关闭以触发重连(非空闲掉线, 仅修复已死亡的会话). 这避免"Token 管理显示已连接、进入游戏功能才因会话失效掉线"的问题
 
 ## 代码风格
 

@@ -6,7 +6,7 @@
         <div class="card-header">
           <div class="brand">
             <img src="/icons/xiaoyugan.png" alt="XYZW" class="brand-logo" />
-            <h1 class="brand-title">XYZW 游戏管理系统</h1>
+            <h1 class="brand-title">XYZW 管理系统</h1>
           </div>
           <p class="welcome-text">欢迎回来，请登录您的账户</p>
         </div>
