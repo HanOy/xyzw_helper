@@ -271,11 +271,11 @@ const autoTopUpFish = async (need, shouldBe, target) => {
 
 const pickArenaTargetId = (targets) => {
   const candidate =
-    targets?.rankList?.[0] ||
-    targets?.roleList?.[0] ||
     targets?.targets?.[0] ||
     targets?.targetList?.[0] ||
-    targets?.list?.[0];
+    targets?.roleList?.[0] ||
+    targets?.list?.[0] ||
+    targets?.rankList?.[0];
 
   if (candidate?.roleId) return candidate.roleId;
   if (candidate?.id) return candidate.id;
