@@ -87,7 +87,6 @@ export function createConnectionManager({ tokenStore, batchSettings, addLog }) {
           type: "warning",
         });
 
-        tokenStore.closeWebSocketConnection(tokenId);
         await new Promise((r) => setTimeout(r, batchSettings.reconnectDelay));
 
         addLog({
@@ -152,11 +151,10 @@ export function createConnectionManager({ tokenStore, batchSettings, addLog }) {
    * @param {string} tokenName - Token名称
    */
   const closeConnection = (tokenId, tokenName) => {
-    tokenStore.closeWebSocketConnection(tokenId);
     releaseConnectionSlot();
     addLog({
       time: new Date().toLocaleTimeString(),
-      message: `${tokenName} 连接已关闭  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
+      message: `${tokenName} 任务完成  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
       type: "info",
     });
   };
