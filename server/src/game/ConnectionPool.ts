@@ -4,6 +4,10 @@ import { getVault } from '../crypto/vault.js';
 import { transformToken, type AuthUserResult } from '../token/authUser.js';
 import { bus, type BusEvent } from '../events/bus.js';
 import { saveRoleCache } from './roleCache.js';
+import { logger } from '../logger.js';
+import { extractLastLoginTimestamp, generateRandomSeed } from './randomSeed.js';
+
+const log = logger.child({ mod: 'connection-pool' });
 
 export interface ConnectionMeta {
   id: string;
@@ -22,6 +26,7 @@ export interface PoolEntry {
   status: GameSocketStatus;
   lastError: string | null;
   connectedAt: string;
+  lastRandomSeedSource: number | null;
 }
 
 export class ConnectionPool {
@@ -71,6 +76,7 @@ export class ConnectionPool {
       status: 'connecting',
       lastError: null,
       connectedAt: new Date().toISOString(),
+      lastRandomSeedSource: null,
     };
     this.entries.set(meta.id, entry);
     this.attachHandlers(meta.id, socket);
@@ -139,7 +145,32 @@ export class ConnectionPool {
       const evt: BusEvent = { type: 'game.event', tokenId: id, msg };
       bus.emit('event', evt);
       this.persistIfRelevant(id, msg);
+      this.trySyncRandomSeed(id, msg);
     });
+  }
+
+  /**
+   * 收到角色信息后同步 randomSeed (缺失会导致游戏服约180s回收会话)
+   */
+  private trySyncRandomSeed(id: string, msg: GameMessage): void {
+    const cmd = String(msg.cmd ?? '').toLowerCase();
+    if (cmd !== 'role_getroleinforesp' && cmd !== 'role_getroleinfo') return;
+    const entry = this.entries.get(id);
+    if (!entry || !entry.socket.isConnected()) return;
+    if (!msg.body || typeof msg.body !== 'object') return;
+
+    const lastLoginTime = extractLastLoginTimestamp(msg.body);
+    if (!lastLoginTime) return;
+    if (entry.lastRandomSeedSource === lastLoginTime) return;
+
+    const seed = generateRandomSeed(lastLoginTime);
+    entry.socket
+      .send('system_custom', { key: 'randomSeed', value: seed })
+      .then(() => {
+        entry.lastRandomSeedSource = lastLoginTime;
+        log.debug({ tokenId: id, lastLoginTime, seed }, 'randomSeed synced');
+      })
+      .catch(() => undefined);
   }
 
   private emitStatus(tokenId: string, status: GameSocketStatus, error?: string): void {
