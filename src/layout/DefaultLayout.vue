@@ -126,7 +126,6 @@
 import {
   useTokenStore,
   selectedToken,
-  selectedTokenId,
 } from "@/stores/tokenStore";
 import ThemeToggle from "@/components/Common/ThemeToggle.vue";
 import {
@@ -141,29 +140,48 @@ import {
 } from "@vicons/ionicons5";
 
 import { useRouter } from 'vue-router'
-import { useMessage } from 'naive-ui'
+import { useMessage, useDialog } from 'naive-ui'
 import { ref } from 'vue'
 
 const tokenStore = useTokenStore();
 const router = useRouter();
 const message = useMessage();
+const dialog = useDialog();
 
 const isMobileMenuOpen = ref(false);
 
 const userMenuOptions = [
   {
-    label: "清除所有Token并退出",
+    label: "断开所有Token",
+    key: "disconnectAll",
+  },
+  {
+    label: "退出登录",
     key: "logout",
   },
 ];
 
 // 方法
-const handleUserAction = async (key) => {
+const handleUserAction = (key) => {
   switch (key) {
+    case "disconnectAll":
+      dialog.warning({
+        title: "断开所有Token",
+        content: "确定要断开所有游戏连接吗？断开后可在 Token 管理手动重连。",
+        positiveText: "确定断开",
+        negativeText: "取消",
+        onPositiveClick: async () => {
+          const ids = tokenStore.tokens.map((t) => t.id);
+          for (const id of ids) {
+            await tokenStore.closeWebSocketConnection(id).catch(() => undefined);
+          }
+          message.success(`已断开 ${ids.length} 个Token连接`);
+        },
+      });
+      break;
     case "logout":
-      await tokenStore.clearAllTokens();
-      message.success("已清除所有Token");
-      router.push("/admin/tokens");
+      tokenStore.logout();
+      router.push("/login");
       break;
   }
 };
