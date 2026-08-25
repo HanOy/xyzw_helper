@@ -387,6 +387,20 @@ export class DailyTaskRunner {
             "开始竞技场",
           );
 
+          let battleVersion = 240475;
+          try {
+            const levelRes = await this.executeGameCommand(
+              tokenId,
+              "fight_startlevel",
+              {},
+              "获取战斗版本",
+              8000,
+            );
+            if (levelRes?.battleData?.version) {
+              battleVersion = levelRes.battleData.version;
+            }
+          } catch {}
+
           for (let i = 1; i <= 3; i++) {
             this.log(`竞技场战斗 ${i}/3`);
             let targets;
@@ -410,7 +424,7 @@ export class DailyTaskRunner {
               await this.executeGameCommand(
                 tokenId,
                 "fight_startareaarena",
-                { targetId },
+                { targetId, battleVersion },
                 `竞技场战斗${i}`,
                 10000,
               );

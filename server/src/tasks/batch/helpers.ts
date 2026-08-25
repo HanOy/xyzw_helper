@@ -21,11 +21,11 @@ export function calculateMonthProgress(): number {
 
 export function pickArenaTargetId(targets: any): number | null {
   const candidate =
-    targets?.rankList?.[0] ||
-    targets?.roleList?.[0] ||
     targets?.targets?.[0] ||
     targets?.targetList?.[0] ||
-    targets?.list?.[0];
+    targets?.roleList?.[0] ||
+    targets?.list?.[0] ||
+    targets?.rankList?.[0];
   if (candidate?.roleId) return candidate.roleId;
   if (candidate?.id) return candidate.id;
   return targets?.roleId || targets?.id || null;

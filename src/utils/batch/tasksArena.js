@@ -63,13 +63,12 @@ export function createTasksArena(deps) {
         if (shouldStop.value) return;
 
         // 检查咸神门票 (ID: 1007)
-        let role = tokenStore.gameData?.roleInfo?.role;
-        if (!role) {
-          try {
-            const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
-            role = roleInfo?.role;
-          } catch {}
-        }
+        let role = null;
+        try {
+          const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
+          role = roleInfo?.role || null;
+        } catch {}
+        if (!role) role = tokenStore.gameData?.roleInfo?.role;
         const ticketCount = role?.items?.[1007]?.quantity || 0;
         addLog({
           time: new Date().toLocaleTimeString(),
@@ -133,6 +132,17 @@ export function createTasksArena(deps) {
           });
         }
 
+        let battleVersion = 240475;
+        try {
+          const levelRes = await tokenStore.sendMessageWithPromise(
+            tokenId,
+            "fight_startlevel",
+            {},
+            8000,
+          );
+          if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+        } catch {}
+
         for (let i = 0; i < fights; i++) {
           if (shouldStop.value) break;
           await tokenStore.sendMessageWithPromise(tokenId, "arena_startarea", {});
@@ -160,7 +170,7 @@ export function createTasksArena(deps) {
             await tokenStore.sendMessageWithPromise(
               tokenId,
               "fight_startareaarena",
-              { targetId },
+              { targetId, battleVersion },
             );
             addLog({
               time: new Date().toLocaleTimeString(),
@@ -298,13 +308,12 @@ export function createTasksArena(deps) {
           type: "info",
         });
 
-        let role = tokenStore.gameData?.roleInfo?.role;
-        if (!role) {
-          try {
-            const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
-            role = roleInfo?.role;
-          } catch {}
-        }
+        let role = null;
+        try {
+          const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
+          role = roleInfo?.role || null;
+        } catch {}
+        if (!role) role = tokenStore.gameData?.roleInfo?.role;
         let freeUsed = 0;
         const lastFreeTime = Number(
           role?.statisticsTime?.["artifact:normal:lottery:time"] || 0,
@@ -667,13 +676,12 @@ export function createTasksArena(deps) {
         });
 
         // 检查咸神门票 (ID: 1007)
-        let role = tokenStore.gameData?.roleInfo?.role;
-        if (!role) {
-          try {
-            const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
-            role = roleInfo?.role;
-          } catch {}
-        }
+        let role = null;
+        try {
+          const roleInfo = await tokenStore.sendGetRoleInfo(tokenId);
+          role = roleInfo?.role || null;
+        } catch {}
+        if (!role) role = tokenStore.gameData?.roleInfo?.role;
         const ticketCount = role?.items?.[1007]?.quantity || 0;
         addLog({
           time: new Date().toLocaleTimeString(),
@@ -716,6 +724,17 @@ export function createTasksArena(deps) {
             type: "warning",
           });
         }
+
+        let battleVersion = 240475;
+        try {
+          const levelRes = await tokenStore.sendMessageWithPromise(
+            tokenId,
+            "fight_startlevel",
+            {},
+            8000,
+          );
+          if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+        } catch {}
 
         let safetyCounter = 0;
         const safetyMaxFights = 100;
@@ -772,7 +791,7 @@ export function createTasksArena(deps) {
               await tokenStore.sendMessageWithPromise(
                 tokenId,
                 "fight_startareaarena",
-                { targetId },
+                { targetId, battleVersion },
                 15000,
               );
               actualFights++;

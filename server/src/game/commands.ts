@@ -46,7 +46,7 @@ export const commands = {
   fight_startlevel: {},
   arena_getareatarget: { refresh: false },
   arena_getarearank: {},
-  fight_startareaarena: {},
+  fight_startareaarena: { battleVersion: 240475 },
 
   // 商店
   store_goodslist: { storeId: 1 },

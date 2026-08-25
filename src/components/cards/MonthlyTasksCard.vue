@@ -297,6 +297,17 @@ const autoTopUpArena = async (need, shouldBe, target) => {
         6000,
       );
     } catch {}
+    let battleVersion = 240475;
+    try {
+      const levelRes = await tokenStore.sendMessageWithPromise(
+        tokenId,
+        "fight_startlevel",
+        {},
+        8000,
+      );
+      if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+    } catch {}
+
     let safetyCounter = 0;
     const safetyMaxFights = 100;
     let round = 1;
@@ -330,7 +341,7 @@ const autoTopUpArena = async (need, shouldBe, target) => {
           await tokenStore.sendMessageWithPromise(
             tokenId,
             "fight_startareaarena",
-            { targetId },
+            { targetId, battleVersion },
             15000,
           );
         } catch (e) {

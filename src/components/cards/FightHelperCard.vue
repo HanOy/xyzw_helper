@@ -89,6 +89,16 @@ const handleFightHelper = async () => {
   const tokenId = tokenStore.selectedToken.id;
   state.value.isRunning = true;
   message.info("竞技场战斗中");
+  let battleVersion = 240475;
+  try {
+    const levelRes = await tokenStore.sendMessageWithPromise(
+      tokenId,
+      "fight_startlevel",
+      {},
+      8000,
+    );
+    if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+  } catch {}
   for (let i = 0; i < number.value; i++) {
     // 开始竞技场
     await tokenStore.sendMessageWithPromise(tokenId, "arena_startarea", {});
@@ -112,6 +122,7 @@ const handleFightHelper = async () => {
     try {
       await tokenStore.sendMessageWithPromise(tokenId, "fight_startareaarena", {
         targetId,
+        battleVersion,
       });
     } catch (e) {
       message.error(`竞技场对决失败：${e.message}`);
