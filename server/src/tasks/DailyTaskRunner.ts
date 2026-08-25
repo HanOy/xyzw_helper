@@ -268,6 +268,19 @@ export async function runDailyTasks(tokenId: string, customSettings?: DailyTaskS
           }
           await switchFormation(runId, tokenId, settings.arenaFormation!, '竞技场阵容');
           await execCmd(runId, tokenId, 'arena_startarea', {}, '开始竞技场');
+          let battleVersion = 240475;
+          try {
+            const levelRes = (await execCmd(
+              runId,
+              tokenId,
+              'fight_startlevel',
+              {},
+              '获取战斗版本',
+              8000,
+            )) as { battleData?: { version?: number } } | null;
+            if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+          } catch {}
+
           for (let i = 1; i <= 3; i++) {
             taskLog({ runId, tokenId, level: 'info', message: `竞技场战斗 ${i}/3` });
             let targets: unknown;
@@ -279,7 +292,7 @@ export async function runDailyTasks(tokenId: string, customSettings?: DailyTaskS
             }
             const targetId = pickArenaTargetId(targets);
             if (targetId !== null && targetId !== undefined) {
-              await execCmd(runId, tokenId, 'fight_startareaarena', { targetId }, `竞技场战斗${i}`, 10000);
+              await execCmd(runId, tokenId, 'fight_startareaarena', { targetId, battleVersion }, `竞技场战斗${i}`, 10000);
             } else {
               taskLog({ runId, tokenId, level: 'warn', message: `未找到目标` });
             }

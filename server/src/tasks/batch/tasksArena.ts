@@ -48,6 +48,14 @@ export function createTasksArena(ctx: BatchContext) {
         ctx.log('warn', `${ctx.tokenId} 咸神门票仅剩 ${ticketCount} 张，将执行 ${fights} 次战斗`);
       }
 
+      let battleVersion = 240475;
+      try {
+        const levelRes = (await ctx.send("fight_startlevel", {}, 8000)) as {
+          battleData?: { version?: number };
+        } | null;
+        if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+      } catch {}
+
       for (let i = 0; i < fights; i++) {
         if (ctx.shouldStop) break;
         await ctx.send("arena_startarea", {}, 8000);
@@ -64,7 +72,7 @@ export function createTasksArena(ctx: BatchContext) {
           break;
         }
         try {
-          await ctx.send("fight_startareaarena", { targetId }, 15000);
+          await ctx.send("fight_startareaarena", { targetId, battleVersion }, 15000);
           ctx.log('info', `${ctx.tokenId} 竞技场战斗 ${i + 1}/3`);
           await ctx.sleep((ctx.delayConfig as any).battle);
         } catch (e) {
@@ -285,6 +293,14 @@ export function createTasksArena(ctx: BatchContext) {
         ctx.log('warn', `${ctx.tokenId} 开始竞技场失败: ${(error as Error).message}`);
       }
 
+      let battleVersion = 240475;
+      try {
+        const levelRes = (await ctx.send("fight_startlevel", {}, 8000)) as {
+          battleData?: { version?: number };
+        } | null;
+        if (levelRes?.battleData?.version) battleVersion = levelRes.battleData.version;
+      } catch {}
+
       let safetyCounter = 0;
       const safetyMaxFights = 100;
       let round = 1;
@@ -307,7 +323,7 @@ export function createTasksArena(ctx: BatchContext) {
             break;
           }
           try {
-            await ctx.send("fight_startareaarena", { targetId }, 15000);
+            await ctx.send("fight_startareaarena", { targetId, battleVersion }, 15000);
             actualFights++;
             ticketsLeft--;
             ctx.log('info', `${ctx.tokenId} 竞技场战斗 ${i + 1}/${planFights} 完成`);
