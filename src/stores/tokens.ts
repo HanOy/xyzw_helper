@@ -24,7 +24,21 @@ export const useTokensStore = defineStore('tokens', () => {
   const logs = ref<Array<{ id: number; runId: string; tokenId?: string; level: string; message: string; ts: string }>>([]);
   const wsConnections = ref<Record<string, { status: string; lastError: unknown }>>({});
   const battleVersion = ref<unknown>(null);
-  const gameData = ref<Record<string, unknown>>({});
+  const gameDataByToken = ref<Record<string, Record<string, unknown>>>({});
+
+  // 游戏数据按 token 分桶, gameData 恒为「当前选中账号」的切片
+  const gameData = computed<Record<string, unknown>>(
+    () => gameDataByToken.value[selectedTokenId.value] ?? {},
+  );
+
+  function ensureGameData(tokenId: string): Record<string, unknown> {
+    let slot = gameDataByToken.value[tokenId];
+    if (!slot) {
+      slot = {};
+      gameDataByToken.value[tokenId] = slot;
+    }
+    return slot;
+  }
 
   const hasTokens = computed(() => tokens.value.length > 0);
   const gameTokens = computed<ApiToken[]>(() => tokens.value);
@@ -298,8 +312,9 @@ export const useTokensStore = defineStore('tokens', () => {
     try {
       const roleInfo = await sendMessageWithPromise(tokenId, 'role_getroleinfo', params, 15000);
       if (roleInfo) {
-        gameData.value.roleInfo = roleInfo as Record<string, unknown>;
-        gameData.value.lastUpdated = new Date().toISOString();
+        const slot = ensureGameData(tokenId);
+        slot.roleInfo = roleInfo as Record<string, unknown>;
+        slot.lastUpdated = new Date().toISOString();
       }
       return roleInfo;
     } catch {
@@ -332,7 +347,7 @@ export const useTokensStore = defineStore('tokens', () => {
   function routeGameEvent(tokenId: string, msg: Record<string, unknown>): void {
     const cmd = String(msg.cmd ?? (msg._raw as Record<string, unknown> | undefined)?.cmd ?? '').toLowerCase();
     const body = (msg as { body?: unknown }).body ?? msg;
-    const gd = gameData.value;
+    const gd = ensureGameData(tokenId);
 
     if (cmd === 'role_getroleinforesp' || cmd === 'role_getroleinfo') {
       gd.roleInfo = body;
@@ -438,7 +453,7 @@ export const useTokensStore = defineStore('tokens', () => {
   async function answerStudy(tokenId: string, questionList: unknown[], studyId: number): Promise<void> {
     try {
       const { findAnswer } = await import('../utils/studyQuestionsFromJSON');
-      const gd = gameData.value;
+      const gd = ensureGameData(tokenId);
       for (let i = 0; i < questionList.length; i++) {
         const q = (questionList[i] ?? {}) as { question?: string; id?: unknown };
         const questionText = String(q.question ?? '');
