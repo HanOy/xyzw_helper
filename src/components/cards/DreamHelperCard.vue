@@ -123,6 +123,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, watchEffect } from "vue";
 import { useMessage } from "naive-ui";
 import { useTokenStore } from "@/stores/tokenStore";
+import { useSettingsStore } from "@/stores/settingsStore";
 import MyCard from "../Common/MyCard.vue";
 import {
   merchantConfig,
@@ -131,6 +132,7 @@ import {
 } from "@/utils/dreamConstants";
 
 const tokenStore = useTokenStore();
+const settingsStore = useSettingsStore();
 const message = useMessage();
 
 const iconPath = computed(
@@ -150,6 +152,35 @@ const battleInterval = ref(null);
 const merchantData = ref({ 1: [], 2: [], 3: [] });
 const levelId = ref(0);
 const selectedItems = ref(new Set());
+
+// 梦境商品选择按 token 持久化到后端 settings
+const loadSelectedItems = async () => {
+  const tokenId = tokenStore.selectedToken?.id;
+  if (!tokenId) return;
+  try {
+    const raw = await settingsStore.load(`dream-items:${tokenId}`);
+    const arr = raw ? JSON.parse(raw) : [];
+    selectedItems.value = new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    // ignore malformed persisted data
+  }
+};
+
+const persistSelectedItems = () => {
+  const tokenId = tokenStore.selectedToken?.id;
+  if (!tokenId) return;
+  settingsStore.setItem(
+    `dream-items:${tokenId}`,
+    JSON.stringify(Array.from(selectedItems.value)),
+  );
+};
+
+watch(selectedItems, persistSelectedItems, { deep: true });
+watch(
+  () => tokenStore.selectedToken?.id,
+  () => void loadSelectedItems(),
+);
+onMounted(() => void loadSelectedItems());
 const merchantDataLoaded = ref(false);
 
 // 英雄数据映射

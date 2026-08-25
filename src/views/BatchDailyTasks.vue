@@ -4482,7 +4482,7 @@ const applyTemplate = () => {
       ...template.settings,
       templateId: template.id, // 记录模板ID
     };
-    localStorage.setItem(
+    settingsStore.setItem(
       `daily-settings:${tokenId}`,
       JSON.stringify(accountSettings),
     );
