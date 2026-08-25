@@ -17,7 +17,7 @@ services:
       - XYZW_BOOT_PASSWORD=${XYZW_BOOT_PASSWORD:-test123}
       - XYZW_SESSION_PASSPHRASE=${XYZW_SESSION_PASSPHRASE:-change-me-on-deploy}
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/api/health"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 10s
       timeout: 3s
       retries: 3
