@@ -99,30 +99,23 @@ async function reconnectAllTokens(): Promise<void> {
   const tokens = tokenService.list();
   if (!tokens.length) return;
   logger.info({ count: tokens.length }, 'startup: reconnecting all tokens');
-  const batchSize = 10;
   let ok = 0;
   let failed = 0;
-  for (let i = 0; i < tokens.length; i += batchSize) {
-    const batch = tokens.slice(i, i + batchSize);
-    await Promise.allSettled(
-      batch.map(async (t) => {
-        try {
-          const meta = tokenService.toConnectionMeta(t.id);
-          if (!meta) throw new Error('无法解密 token');
-          await connectionPool.connect(meta);
-          ok += 1;
-        } catch (err) {
-          failed += 1;
-          logger.warn(
-            { tokenId: t.id, err: (err as Error).message },
-            'startup reconnect failed',
-          );
-        }
-      }),
-    );
-    if (i + batchSize < tokens.length) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
+  for (const t of tokens) {
+    try {
+      const meta = tokenService.toConnectionMeta(t.id);
+      if (!meta) throw new Error('无法解密 token');
+      await connectionPool.connect(meta);
+      ok += 1;
+    } catch (err) {
+      failed += 1;
+      logger.warn(
+        { tokenId: t.id, err: (err as Error).message },
+        'startup reconnect failed',
+      );
     }
+    // 串行+间隔, 避免同 IP 瞬时批量登录被游戏服风控踢线
+    await new Promise((resolve) => setTimeout(resolve, 2500));
   }
   logger.info({ total: tokens.length, ok, failed }, 'startup reconnect finished');
 }
