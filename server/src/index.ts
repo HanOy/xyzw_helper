@@ -30,6 +30,7 @@ import { registerSettingsRoutes } from './api/settings.routes.js';
 import { seedTasksIfNeeded } from './tasks/taskRunner.js';
 import { startScheduler, stopScheduler } from './tasks/scheduler.js';
 import { connectionPool } from './game/poolSingleton.js';
+import { tokenService } from './token/TokenService.js';
 
 async function promptPassword(): Promise<string> {
   if (!process.stdin.isTTY) {
@@ -92,6 +93,38 @@ async function ensureVault(): Promise<void> {
   setVault(persisted.vault);
   setAuthCredentials(persisted.salt, persisted.hash);
   logger.info('已生成新的主密钥并加密持久化');
+}
+
+async function reconnectAllTokens(): Promise<void> {
+  const tokens = tokenService.list();
+  if (!tokens.length) return;
+  logger.info({ count: tokens.length }, 'startup: reconnecting all tokens');
+  const batchSize = 10;
+  let ok = 0;
+  let failed = 0;
+  for (let i = 0; i < tokens.length; i += batchSize) {
+    const batch = tokens.slice(i, i + batchSize);
+    await Promise.allSettled(
+      batch.map(async (t) => {
+        try {
+          const meta = tokenService.toConnectionMeta(t.id);
+          if (!meta) throw new Error('无法解密 token');
+          await connectionPool.connect(meta);
+          ok += 1;
+        } catch (err) {
+          failed += 1;
+          logger.warn(
+            { tokenId: t.id, err: (err as Error).message },
+            'startup reconnect failed',
+          );
+        }
+      }),
+    );
+    if (i + batchSize < tokens.length) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+  }
+  logger.info({ total: tokens.length, ok, failed }, 'startup reconnect finished');
 }
 
 async function bootstrap() {
@@ -172,6 +205,8 @@ async function bootstrap() {
   logger.info({ port: CONFIG.port, host: CONFIG.host }, 'server listening');
 
   startScheduler();
+
+  void reconnectAllTokens();
 
   const shutdown = async () => {
     logger.info('shutting down');
