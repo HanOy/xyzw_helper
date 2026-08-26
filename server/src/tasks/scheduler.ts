@@ -1,6 +1,7 @@
 import { runBatchDailyTasks } from './taskRunner.js';
 import { runBatchOperations } from './batch/executor.js';
 import { getSetting } from '../settings/settingsService.js';
+import { tokenService } from '../token/TokenService.js';
 import {
   listScheduledTasks,
   markTaskRun,
@@ -26,12 +27,17 @@ const CHECK_INTERVAL_MS = 60_000;
 let timer: NodeJS.Timeout | null = null;
 
 function executeTask(task: ScheduledTask): void {
-  if (!task.tokenIds.length) {
-    log.warn({ taskId: task.id }, '定时任务没有选中任何 token, 跳过');
+  // 定时任务不绑定固定 Token, 触发时对所有当前 Token 执行
+  const tokenIds = tokenService.list().map((t) => t.id);
+  if (!tokenIds.length) {
+    log.warn({ taskId: task.id }, '当前没有Token, 定时任务跳过');
     markTaskRun(task.id, 'skipped', 'no tokens');
     return;
   }
-  log.info({ taskId: task.id, name: task.name, tokens: task.tokenIds.length }, '触发定时任务');
+  log.info(
+    { taskId: task.id, name: task.name, tokens: tokenIds.length },
+    '触发定时任务(全部Token)',
+  );
   markTaskRun(task.id, 'running');
   const onDone = (status: 'success' | 'failed', error?: string) => {
     if (status === 'success') {
@@ -45,14 +51,14 @@ function executeTask(task: ScheduledTask): void {
   if (task.selectedTasks?.length) {
     runBatchOperations(
       {
-        tokenIds: task.tokenIds,
+        tokenIds,
         selectedTasks: task.selectedTasks,
         settings: loadBatchSettings(),
       },
       onDone,
     );
   } else {
-    runBatchDailyTasks({ tokenIds: task.tokenIds }, onDone);
+    runBatchDailyTasks({ tokenIds }, onDone);
   }
 }
 

@@ -43,9 +43,9 @@ export function registerScheduledRoutes(app: FastifyInstance): void {
     '/api/scheduled-tasks',
     { preHandler: app.authPreHandler },
     async (req, reply) => {
-      if (!req.body?.name || !req.body?.runType || !Array.isArray(req.body?.tokenIds)) {
+      if (!req.body?.name || !req.body?.runType) {
         reply.code(400);
-        return { success: false, message: 'name/runType/tokenIds 必填' };
+        return { success: false, message: 'name/runType 必填' };
       }
       const task = createScheduledTask(normalizeInput(req.body));
       return { success: true, data: task };

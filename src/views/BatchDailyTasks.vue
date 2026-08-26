@@ -1634,7 +1634,7 @@
           </div>
           <div style="margin-bottom: 4px">
             <span style="color: #6b7280">选中账号：</span>
-            <span>{{ task.selectedTokens.length }} 个</span>
+            <span>全部</span>
           </div>
           <div style="margin-bottom: 8px">
             <span style="color: #6b7280">选中任务：</span>
@@ -1727,104 +1727,11 @@
             </div>
           </div>
           <div class="setting-item">
-            <div
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                margin-bottom: 8px;
-              "
-            >
-              <label class="setting-label">选择账号</label>
-              <n-space size="small">
-                <n-button size="small" @click="selectAllTokens">
-                  全选
-                </n-button>
-                <n-button size="small" @click="deselectAllTokens">
-                  全不选
-                </n-button>
-              </n-space>
+            <label class="setting-label">执行范围</label>
+            <div style="font-size: 13px; color: #86909c">
+              自动对<strong>所有 Token</strong>
+              执行（触发时以当前 Token 列表为准，无需选择账号，新导入的账号自动纳入）
             </div>
-
-            <!-- 分组快速选择 (仅在定时任务中显示) -->
-            <div style="margin-bottom: 12px">
-              <div
-                style="
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  margin-bottom: 8px;
-                "
-              >
-                <div style="font-size: 12px; color: #86909c">
-                  快速选择分组：
-                </div>
-                <n-button
-                  type="primary"
-                  size="tiny"
-                  text
-                  @click="showGroupManageModal = true"
-                >
-                  管理分组
-                </n-button>
-              </div>
-              <div
-                v-if="tokenGroups.length === 0"
-                style="font-size: 12px; color: #ccc"
-              >
-                暂无分组
-              </div>
-              <div style="display: flex; gap: 6px; flex-wrap: wrap">
-                <n-button
-                  v-for="group in tokenGroups"
-                  :key="group.id"
-                  size="small"
-                  :type="
-                    taskScheduleSelectedGroupIds.includes(group.id)
-                      ? 'primary'
-                      : 'default'
-                  "
-                  @click="
-                    () => {
-                      const index = taskScheduleSelectedGroupIds.indexOf(
-                        group.id,
-                      );
-                      const groupTokenIds = getValidGroupTokenIds(group.id);
-
-                      if (index > -1) {
-                        // 取消选择该分组
-                        taskScheduleSelectedGroupIds.splice(index, 1);
-                        taskForm.selectedTokens =
-                          taskForm.selectedTokens.filter(
-                            (id) => !groupTokenIds.includes(id),
-                          );
-                      } else {
-                        // 选择该分组
-                        taskScheduleSelectedGroupIds.push(group.id);
-                        groupTokenIds.forEach((id) => {
-                          if (!taskForm.selectedTokens.includes(id)) {
-                            taskForm.selectedTokens.push(id);
-                          }
-                        });
-                      }
-                    }
-                  "
-                  :style="{
-                    borderColor: group.color,
-                  }"
-                >
-                  {{ group.name }}
-                </n-button>
-              </div>
-            </div>
-
-            <n-checkbox-group v-model:value="taskForm.selectedTokens">
-              <n-grid :cols="2" :x-gap="12" :y-gap="8">
-                <n-grid-item v-for="token in sortedTokens" :key="token.id">
-                  <n-checkbox :value="token.id">{{ token.name }}</n-checkbox>
-                </n-grid-item>
-              </n-grid>
-            </n-checkbox-group>
           </div>
           <div class="setting-item">
             <div
@@ -3120,7 +3027,6 @@ const newGroupSelectedTokens = ref([]); // 新建分组时选中的Token ID列�
 const editingGroupId = ref(null);
 const editingGroupName = ref("");
 const editingGroupColor = ref("");
-const taskScheduleSelectedGroupIds = ref([]); // 定时任务中通过分组按钮选中的分组ID列表
 const groupColors = [
   "#1677ff", // 蓝色
   "#52c41a", // 绿色
@@ -3481,7 +3387,6 @@ const taskForm = reactive({
   runType: "daily", // 'daily' or 'cron'
   runTime: null, // Daily run time (HH:mm format)
   cronExpression: "", // Cron expression for complex scheduling
-  selectedTokens: [], // Selected token IDs
   selectedTasks: [], // Selected task function names
   enabled: true, // Whether the task is enabled
 });
@@ -3622,7 +3527,6 @@ const loadScheduledTasks = async () => {
       runType: t.runType,
       runTime: t.runTime || null,
       cronExpression: t.cronExpression || null,
-      selectedTokens: t.tokenIds || [],
       selectedTasks: t.selectedTasks || [],
       enabled: Boolean(t.enabled),
       lastRunAt: t.lastRunAt || null,
@@ -3643,11 +3547,9 @@ const openTaskModal = () => {
     runType: "daily",
     runTime: undefined,
     cronExpression: "",
-    selectedTokens: [],
     selectedTasks: [],
     enabled: true,
   });
-  taskScheduleSelectedGroupIds.value = [];
   showTaskModal.value = true;
 };
 
@@ -3671,7 +3573,6 @@ const editTask = (task) => {
     );
   }
   Object.assign(taskForm, taskData);
-  taskScheduleSelectedGroupIds.value = [];
   showTaskModal.value = true;
 };
 
@@ -3733,11 +3634,6 @@ const saveTask = async () => {
     }
   }
 
-  if (taskForm.selectedTokens.length === 0) {
-    message.warning("请选择至少一个账号");
-    return;
-  }
-
   if (taskForm.selectedTasks.length === 0) {
     message.warning("请选择至少一个任务");
     return;
@@ -3760,7 +3656,6 @@ const saveTask = async () => {
     runType: taskForm.runType,
     runTime: formattedRunTime,
     cronExpression: taskForm.runType === "cron" ? taskForm.cronExpression : "",
-    selectedTokens: [...taskForm.selectedTokens],
     selectedTasks: [...taskForm.selectedTasks],
     enabled: taskForm.enabled,
   };
@@ -3772,7 +3667,7 @@ const saveTask = async () => {
         runType: taskData.runType,
         runTime: taskData.runTime,
         cronExpression: taskData.cronExpression,
-        tokenIds: taskData.selectedTokens,
+        tokenIds: [],
         selectedTasks: taskData.selectedTasks,
         enabled: taskData.enabled,
       });
@@ -3782,7 +3677,7 @@ const saveTask = async () => {
         runType: taskData.runType,
         runTime: taskData.runTime,
         cronExpression: taskData.cronExpression,
-        tokenIds: taskData.selectedTokens,
+        tokenIds: [],
         selectedTasks: taskData.selectedTasks,
         enabled: taskData.enabled,
       });
@@ -3831,16 +3726,6 @@ const resetRunType = () => {
   } else {
     taskForm.runTime = undefined;
   }
-};
-
-// Select all tokens
-const selectAllTokens = () => {
-  taskForm.selectedTokens = tokens.value.map((token) => token.id);
-};
-
-// Deselect all tokens
-const deselectAllTokens = () => {
-  taskForm.selectedTokens = [];
 };
 
 // Select all tasks
