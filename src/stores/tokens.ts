@@ -201,15 +201,9 @@ export const useTokensStore = defineStore('tokens', () => {
     await disconnect(id).catch(() => undefined);
   }
 
-  async function selectToken(id: string, forceReconnect = false): Promise<boolean> {
-    const wasSelected = selectedTokenId.value === id;
-    const status = getWebSocketStatus(id);
+  // 点击仅切换选中, 连接/断开一律走显式入口(按钮/控制台跳转/批量流程)
+  function selectToken(id: string): boolean {
     setSelectedToken(id);
-    if (wasSelected && status === 'connected' && !forceReconnect) {
-      await disconnect(id).catch(() => undefined);
-    } else if (status !== 'connected') {
-      await connect(id).catch(() => undefined);
-    }
     return true;
   }
 

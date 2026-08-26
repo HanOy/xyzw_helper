@@ -248,6 +248,7 @@
               </div>
 
               <a-button
+                v-if="token.sourceUrl"
                 :loading="refreshingTokens.has(token.id)"
                 @click.stop="refreshToken(token)"
               >
@@ -256,7 +257,15 @@
                     <Refresh />
                   </n-icon>
                 </template>
-                {{ token.sourceUrl ? "刷新" : "重新获取" }}
+                刷新
+              </a-button>
+
+              <a-button
+                type="primary"
+                ghost
+                @click.stop="toggleTokenConnection(token)"
+              >
+                {{ getConnectionStatus(token.id) === "connected" ? "断开" : "连接" }}
               </a-button>
 
               <div class="token-timestamps">
@@ -517,6 +526,7 @@
                   控制台
                 </n-button>
                 <n-button
+                  v-if="token.sourceUrl"
                   size="small"
                   @click.stop="refreshToken(token)"
                   :loading="refreshingTokens.has(token.id)"
@@ -527,6 +537,21 @@
                     </n-icon>
                   </template>
                   刷新
+                </n-button>
+                <n-button
+                  size="small"
+                  :type="
+                    getConnectionStatus(token.id) === 'connected'
+                      ? 'error'
+                      : 'success'
+                  "
+                  @click.stop="toggleTokenConnection(token)"
+                >
+                  {{
+                    getConnectionStatus(token.id) === "connected"
+                      ? "断开"
+                      : "连接"
+                  }}
                 </n-button>
                 <n-dropdown
                   :options="getTokenActions(token)"
@@ -636,11 +661,8 @@ import {
 import { NIcon, NAlert, useDialog, useMessage } from "naive-ui";
 import { h, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import { transformToken, scheduleAuthUserRequest } from "@/utils/token";
+import { scheduleAuthUserRequest } from "@/utils/token";
 import { $emit } from "@/stores/events/index.ts";
-import useIndexedDB from "@/hooks/useIndexedDB";
-const { getArrayBuffer, storeArrayBuffer, deleteArrayBuffer, clearAll } =
-  useIndexedDB();
 // 接收路由参数
 const props = defineProps({
   token: String,
@@ -826,8 +848,12 @@ const openshowImportForm = () => {
   showImportForm.value = true;
 };
 
-// 刷新Token
+// 从源URL刷新Token(仅URL导入支持)
 const refreshToken = async (token) => {
+  if (!token.sourceUrl) {
+    message.info("该Token没有刷新源，如已失效请重新扫码或重新导入");
+    return;
+  }
   refreshingTokens.value.add(token.id);
 
   try {
@@ -883,64 +909,6 @@ const refreshToken = async (token) => {
       });
 
       message.success("Token刷新成功");
-    } else if (
-      token.importMethod === "wxQrcode" ||
-      token.importMethod === "bin"
-    ) {
-      let userToken = await getArrayBuffer(token.id);
-      let usedOldKey = false;
-      if (!userToken) {
-        userToken = await getArrayBuffer(token.name);
-        usedOldKey = true;
-      }
-      if (userToken) {
-        const newToken = await transformToken(userToken);
-        tokenStore.updateToken(token.id, {
-          token: newToken,
-          lastRefreshed: Date.now(),
-        });
-        if (usedOldKey) {
-          await storeArrayBuffer(token.id, userToken);
-          await deleteArrayBuffer(token.name);
-          console.log("已迁移IndexedDB数据:", token.name, "->", token.id);
-        }
-        message.success("Token刷新成功");
-      }
-    } else {
-      dialog.info({
-        title: "重新获取Token",
-        content: `Token "${token.name}" 是通过微信扫码登录导入的，没有配置自动刷新地址。
-
-请选择以下操作：
-1. 重新手动导入新的Token
-2. 尝试重新连接现有Token`,
-        positiveText: "重新导入",
-        negativeText: "重新连接",
-        onPositiveClick: () => {
-          showImportForm.value = true;
-          importMethod.value = "manual";
-          importForm.name = token.name;
-          importForm.server = token.server;
-          importForm.wsUrl = token.wsUrl;
-        },
-        onNegativeClick: () => {
-          // 断开现有连接
-          if (tokenStore.getWebSocketStatus(token.id) === "connected") {
-            tokenStore.closeWebSocketConnection(token.id);
-          }
-
-          // 尝试重新连接
-          setTimeout(() => {
-            tokenStore.createWebSocketConnection(
-              token.id,
-              token.token,
-              token.wsUrl,
-            );
-            message.info("正在尝试重新连接...");
-          }, 500);
-        },
-      });
-      return;
     }
 
     // 如果当前token有连接，需要重新连接
@@ -982,65 +950,33 @@ const upgradeTokenToPermanent = (token) => {
   });
 };
 
-const selectToken = (token, forceReconnect = false) => {
+const selectToken = (token) => {
   // 如果有备注正在编辑，保存备注并取消编辑
   if (editingRemark.value) {
     saveCurrentRemark();
     return;
   }
 
-  const isAlreadySelected = selectedTokenId.value === token.id;
-  const connectionStatus = getConnectionStatus(token.id);
+  // 点击仅切换选中, 连接/断开一律走显式按钮
+  tokenStore.selectToken(token.id);
+  message.success(`已选择：${token.name}`);
+};
 
-  // 降噪日志已移除
-
-  // 如果已经选中且已连接，断开连接
-  if (
-    isAlreadySelected &&
-    connectionStatus === "connected" &&
-    !forceReconnect
-  ) {
-    // 断开连接
-    tokenStore.closeWebSocketConnection(token.id);
-    message.success(`已断开 ${token.name} 的连接`);
-    return;
-  }
-
-  // 如果未选中但已连接，断开连接
-  if (
-    !isAlreadySelected &&
-    connectionStatus === "connected" &&
-    !forceReconnect
-  ) {
-    // 断开连接
-    tokenStore.closeWebSocketConnection(token.id);
-    message.success(`已断开 ${token.name} 的连接`);
-    return;
-  }
-
-  // 如果已经选中但正在连接，也不执行操作
-  if (
-    isAlreadySelected &&
-    connectionStatus === "connecting" &&
-    !forceReconnect
-  ) {
-    message.info(`${token.name} 正在连接中...`);
-    return;
-  }
-
-  // 选择token（带智能连接判断）
-  const result = tokenStore.selectToken(token.id, forceReconnect);
-
-  if (result) {
-    if (forceReconnect) {
-      message.success(`强制重连：${token.name}`);
-    } else if (isAlreadySelected) {
-      message.success(`重新连接：${token.name}`);
+// 显式连接/断开单个 Token
+const toggleTokenConnection = async (token) => {
+  const status = tokenStore.getWebSocketStatus(token.id);
+  try {
+    if (status === "connected") {
+      await tokenStore.disconnect(token.id);
+      message.success(`已断开 ${token.name}`);
     } else {
-      message.success(`已选择：${token.name}`);
+      await tokenStore.connect(token.id);
+      message.success(`${token.name} 已连接`);
     }
-  } else {
-    message.error(`选择Token失败：${token.name}`);
+  } catch (error) {
+    message.error(
+      `${status === "connected" ? "断开" : "连接"}失败: ${error.message || error}`,
+    );
   }
 };
 
@@ -1098,18 +1034,12 @@ const getTokenActions = (token) => {
     },
   ];
 
-  // 根据Token类型添加刷新选项
+  // 仅URL导入的Token支持从源刷新
   if (token.importMethod === "url" && token.sourceUrl) {
     actions.push({
       label: "从URL刷新",
       key: "refresh-url",
       icon: () => h(NIcon, null, { default: () => h(SyncCircle) }),
-    });
-  } else {
-    actions.push({
-      label: "重新获取",
-      key: "refresh",
-      icon: () => h(NIcon, null, { default: () => h(Refresh) }),
     });
   }
 
@@ -1133,10 +1063,6 @@ const handleTokenAction = async (key, token) => {
       break;
     case "copy":
       copyToken(token);
-      break;
-    case "refresh":
-      // 重新获取Token
-      refreshToken(token);
       break;
     case "refresh-url":
       // URL获取的Token刷新
@@ -1436,8 +1362,8 @@ const updateAllTokenInfo = async () => {
           loadingMessage.content = `正在更新Token信息 (${i + 1}/${totalTokens}): ${token.name}`;
 
           try {
-            // 连接token获取角色信息
-            await tokenStore.selectToken(token.id);
+            // 显式连接token获取角色信息
+            await tokenStore.connect(token.id);
 
             // 等待1秒确保角色信息已获取（可根据实际情况调整）
             await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1496,8 +1422,11 @@ const goToDashboard = () => {
 
 // 开始任务管理 - 跳转到该 token 的游戏功能控制台
 const startTaskManagement = (token) => {
-  // 选择token
+  // 选择token并显式连接(用户主动进入控制台)
   tokenStore.selectToken(token.id);
+  if (tokenStore.getWebSocketStatus(token.id) !== "connected") {
+    tokenStore.connect(token.id).catch(() => undefined);
+  }
   // 跳转到该 token 的控制台(游戏功能页)，不等待连接
   message.success(`正在进入 ${token.name} 的控制台`);
   router.push("/admin/game-features");
@@ -1569,6 +1498,7 @@ const handleUrlParams = async () => {
         // 如果auto=true，自动选择并跳转到控制台
         if (props.auto && tokenResult.token) {
           tokenStore.selectToken(tokenResult.token.id);
+          tokenStore.connect(tokenResult.token.id).catch(() => undefined);
           message.success("正在跳转到控制台...");
           setTimeout(() => {
             router.push("/admin/game-features");

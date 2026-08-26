@@ -152,6 +152,10 @@ const isMobileMenuOpen = ref(false);
 
 const userMenuOptions = [
   {
+    label: "连接全部Token",
+    key: "connectAll",
+  },
+  {
     label: "断开所有Token",
     key: "disconnectAll",
   },
@@ -162,8 +166,33 @@ const userMenuOptions = [
 ];
 
 // 方法
-const handleUserAction = (key) => {
+const handleUserAction = async (key) => {
   switch (key) {
+    case "connectAll": {
+      const ids = tokenStore.tokens.map((t) => t.id);
+      if (!ids.length) {
+        message.warning("没有可连接的Token");
+        return;
+      }
+      message.info(`开始连接 ${ids.length} 个Token...`);
+      let ok = 0;
+      for (const id of ids) {
+        try {
+          await tokenStore.connect(id);
+          ok += 1;
+        } catch (e) {
+          // 单个失败继续
+        }
+        // 串行+间隔, 避免同IP瞬时批量登录被风控
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      if (ok === ids.length) {
+        message.success(`已连接全部 Token (${ok}/${ids.length})`);
+      } else {
+        message.warning(`连接完成 ${ok}/${ids.length}，失败的可稍后重试`);
+      }
+      break;
+    }
     case "disconnectAll":
       dialog.warning({
         title: "断开所有Token",
