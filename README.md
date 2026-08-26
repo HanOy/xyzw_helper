@@ -40,8 +40,9 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 
 ### 🌐 WebSocket 连接池
 - 服务端维护最多 **10 个** 并发游戏 WS, **500ms** 连接间隔
-- 自动重连、心跳保活、消息队列、Promise 响应匹配
-- **空闲自动断连**: 无 SSE 订阅且无任务运行超过 5 分钟自动断开 (可配)
+- 自动重连、心跳保活、90s 只读探活、消息队列、Promise 响应匹配
+- **会话保活**: 收到角色信息即回传 `randomSeed` —— 缺失会被游戏服 ~180 秒强制踢线
+- **连接策略**: 不主动断开空闲连接; 手动断开后不再自动重连(需手动); 非手动掉线 5 分钟窗口内持续重连, 超时置「异常」; **服务启动后自动重连全部 Token** (串行防风控)
 - 浏览器通过 `POST /api/tokens/:id/command` 间接发送指令
 
 ### 🔄 实时 SSE 推送
@@ -125,7 +126,9 @@ docker compose up -d
 
 首启动容器需要交互式输入启动密码 (`stdin_open: true` 已配置). 数据目录 `./data` 通过 volume 持久化, 升级容器不丢失 Token.
 
-设置 `XYZW_SESSION_PASSPHRASE` 环境变量让容器重启后自动派生主密钥 (生产必填).
+- 设置 `XYZW_SESSION_PASSPHRASE` 环境变量让容器重启后自动派生主密钥 (生产必填)
+- 容器时区为 **Asia/Shanghai** (定时任务按北京时间触发)
+- 运行日志写入宿主机 `docker/data/logs/xyzw-YYYY-MM-DD.log`, 按天滚动保留 **3 天**; 也可用 `docker logs xyzw` 查看
 
 ---
 
@@ -191,7 +194,10 @@ Token 入库前会自动通过 Hortor `authuser` 转换为会话凭据, AES-256-
 
 ### 3. 连接 & 命令
 
-- 列表页可对每个 Token 单独 **连接 / 断开**
+- **点击 Token 卡片仅切换选中**, 连接/断开走显式按钮:
+  - Token 列表: 每个 Token 有「连接 / 断开」按钮
+  - 页面右上角菜单: **连接全部 Token** (串行防风控) / **断开所有 Token** / 退出登录
+  - 游戏功能页未连接时会给出友好提示, 不自动重连
 - 游戏指令通过 `POST /api/tokens/:id/command` 发送, 返回 Promise 结果
 - WebSocket 实际由服务端维护, 浏览器只看 SSE 推送的状态
 - **游戏功能 / 批量日常** 需要至少导入一个 Token 才能进入; 无 Token 时会重定向回 Token 管理页
@@ -201,6 +207,13 @@ Token 入库前会自动通过 Hortor `authuser` 转换为会话凭据, AES-256-
 - **日常任务**: 选单个 Token → 一键补差 (25+ 子任务按序执行)
 - **批量日常**: 选多个 Token → 服务端串行执行, SSE 实时进度 + 日志
 - 可随时取消 (`POST /api/tasks/:runId/cancel`)
+
+### 5. 定时任务
+
+- **不绑定固定账号**: 触发时自动对**当前全部 Token** 执行 —— 重新扫码导入的新账号无需重新编辑任务
+- 勾选「**日常任务**」= 执行完整日常流程 (按各账号自己的日常配置); 可与其它勾选项叠加 (先日常后单项)
+- 结果如实上报: 全部成功 `success` / 部分 `partial` / 失败 `failed`
+- 触发时间按北京时间; 手动「立即执行」入口同语义
 
 ### 5. SSE 订阅
 
@@ -241,7 +254,6 @@ const { lastEvent, events, connected } = useSseStream({
 | `XYZW_MAX_CONN` | `10` | WS 并发上限 |
 | `XYZW_CONN_INTERVAL_MS` | `500` | 连接间隔 |
 | `XYZW_JWT_TTL` | `7d` | JWT 有效期 |
-| `XYZW_IDLE_TIMEOUT_MS` | `300000` | 空闲自动断连时长 (0=关闭) |
 | `XYZW_SESSION_PASSPHRASE` | (内置默认) | 解 session key 的 passphrase, 部署务必替换 |
 
 完整文档见 [server/README.md](./server/README.md).
@@ -260,6 +272,16 @@ pnpm test
 ---
 
 ## 📜 更新日志
+
+### v3.2.0 (稳定性与运维)
+- 🔌 **会话保活修复**: 补上 `randomSeed` 回传 —— 缺失会被游戏服 ~180 秒强制踢线 (此前所有连接无法长期存活)
+- ⚔️ **竞技场修复**: `fight_startareaarena` 必须携带动态获取的 `battleVersion` (200750); 门票数量按账号独立读取
+- 🔁 **启动自动重连**: 服务重启后串行重连全部 Token
+- 🕐 **时区**: 容器改为 Asia/Shanghai, 定时任务按北京时间触发
+- 📄 **日志落盘**: 按天写入 `data/logs/` 保留 3 天, ISO 时间戳 + 字符串级别
+- ⏰ **定时任务解耦**: 不再绑定固定账号, 触发时对全部 Token 执行; 「日常任务」勾选项修复为完整日常; 执行结果 success/partial/failed 如实上报
+- 🖱️ **连接操作显式化**: 点击仅选中; 新增单 Token 连接按钮 / 右上角「连接全部」; 移除无效的「重新获取」
+- 💾 **持久化补全**: 梦境商品选择、任务模板应用改走后端 settings 表; 游戏数据按账号分桶 (修复多账号信息轮跳)
 
 ### v3.1.0 (UI 精简)
 - 🏠 **登录后默认进入 Token 管理** (`/admin/tokens`), 作为首页 tab

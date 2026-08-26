@@ -36,6 +36,14 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 | 登录后默认落地页 | `/admin/tokens` | Token 管理即首页 tab |
 | 游戏功能 / 批量日常 | 需要 Token 才能进入 | 无 Token 时重定向到 `/admin/tokens` |
 | WS 断连策略 | 不自动掉线 | 后端不主动断开空闲连接; 手动断开(`intentionalClose`)后不再自动重连, 需用户手动连接; 非手动掉线在 5 分钟内持续重连, 超时置 `error`(异常)并停止 |
+| 连接操作显式化 | 点击仅选中 | Token 卡片点击只切换选中不连断; 显式入口=列表连接按钮 / 右上角「连接全部(串行1s)/断开所有/退出登录」/ 控制台跳转 |
+| 启动自动重连 | 全部 Token | 监听端口后从 DB 读全部 token, 逐个串行 + 2.5s 间隔调现有 connect (避免同 IP 瞬时批量登录风控) |
+| 会话保活 | randomSeed 必须回传 | 收到角色信息响应即按 `last:login:time` 算种子发 `system_custom{key:'randomSeed'}` (按登录时间去重); 缺失会被游戏服 **~180s 强制踢线** (server/src/game/randomSeed.ts) |
+| 战斗指令协议 | fight_startareaarena 必带 battleVersion | 经 `fight_startlevel` 动态获取 (响应体 battleData.version), 兜底 240475; 缺失服务端报 200750 |
+| 定时任务 | 不绑定 Token | 触发时对**当前全部 Token** 执行; 「日常任务」(startBatch)=完整日常 runBatchDailyTasks, 可与其它勾选项叠加(先日常后单项); 执行器结果 success/partial/failed 如实上报 |
+| 游戏数据存储 | 按 token 分桶 | 前端 store 用 `gameDataByToken`, `gameData` 为 computed=当前选中账号切片; 写入方必须用 ensureGameData(tokenId), 严禁写全局单例 |
+| 日志 | pino stdout+文件双写 | 容器 TZ=Asia/Shanghai; 按天写 `<dataDir>/logs/xyzw-YYYY-MM-DD.log` 保留 3 天; ISO 时间戳+字符串级别 |
+| 设置持久化 key | 后端 settings 表 | `daily-settings:{tokenId}` / `dream-items:{tokenId}` / `batchSettings` / `task-templates`; 前端一律走 settingsStore, 禁止 localStorage 存配置 |
 | 旧 Python bin 服务 | 删除 | 用户自建 URL 端点 |
 | Cloudflare worker.js | 删除 | |
 | src/xyzw/ (1.7M + 2.3M) | 删除 | 是 cocos2d-js-min.js 和游戏入口, 死代码 |
