@@ -39,27 +39,58 @@ function executeTask(task: ScheduledTask): void {
     '触发定时任务(全部Token)',
   );
   markTaskRun(task.id, 'running');
-  const onDone = (status: 'success' | 'failed', error?: string) => {
-    if (status === 'success') {
+
+  // 「日常任务」(startBatch) = 完整日常流程(runBatchDailyTasks);
+  // 其余勾选项逐个分发到 batch 引擎。两者可叠加, 顺序: 先日常后单项。
+  const selected = task.selectedTasks ?? [];
+  const rest = selected.filter((v) => v !== 'startBatch');
+  const fullDaily = selected.length === 0 || selected.includes('startBatch');
+
+  type Stage = (cb: (status: 'success' | 'failed', error?: string) => void) => void;
+  const stages: Stage[] = [];
+  if (fullDaily) {
+    stages.push((cb) => runBatchDailyTasks({ tokenIds }, cb));
+  }
+  if (rest.length) {
+    stages.push((cb) =>
+      runBatchOperations(
+        {
+          tokenIds,
+          selectedTasks: rest,
+          settings: loadBatchSettings(),
+        },
+        cb,
+      ),
+    );
+  }
+
+  let failures = 0;
+  let lastError: string | undefined;
+  let index = 0;
+  const next = (status: 'success' | 'failed', error?: string): void => {
+    if (status !== 'success') {
+      failures += 1;
+      lastError = error;
+    }
+    index += 1;
+    if (index < stages.length) {
+      stages[index](next);
+      return;
+    }
+    if (failures === 0) {
       markTaskRun(task.id, 'success');
       log.info({ taskId: task.id }, '定时任务执行完成');
     } else {
-      markTaskRun(task.id, 'failed', error);
-      log.error({ taskId: task.id, err: error }, '定时任务执行失败');
+      markTaskRun(task.id, 'failed', lastError);
+      log.error({ taskId: task.id, err: lastError }, '定时任务执行失败');
     }
   };
-  if (task.selectedTasks?.length) {
-    runBatchOperations(
-      {
-        tokenIds,
-        selectedTasks: task.selectedTasks,
-        settings: loadBatchSettings(),
-      },
-      onDone,
-    );
-  } else {
-    runBatchDailyTasks({ tokenIds }, onDone);
+
+  if (!stages.length) {
+    markTaskRun(task.id, 'skipped', 'no tasks selected');
+    return;
   }
+  stages[0](next);
 }
 
 function tick(): void {
