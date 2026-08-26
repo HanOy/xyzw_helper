@@ -14,6 +14,7 @@ services:
       - NODE_ENV=production
       - HOST=0.0.0.0
       - PORT=8787
+      - TZ=Asia/Shanghai
       - XYZW_BOOT_PASSWORD=${XYZW_BOOT_PASSWORD:-test123}
       - XYZW_SESSION_PASSPHRASE=${XYZW_SESSION_PASSPHRASE:-change-me-on-deploy}
     healthcheck:
