@@ -59,12 +59,34 @@ function dailyFileDestination(dir: string): pino.DestinationStream {
   };
 }
 
+/** 本地时区 ISO 时间戳(含偏移), 与容器 TZ/日志文件名对齐 */
+function localIsoTime(): string {
+  const d = new Date();
+  const pad = (n: number, l = 2): string => String(n).padStart(l, '0');
+  const off = -d.getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const abs = Math.abs(off);
+  return (
+    `,"time":"${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    `T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.` +
+    `${pad(d.getMilliseconds(), 3)}${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}"`
+  );
+}
+
 function buildLogger(): pino.Logger {
   const base = { app: 'xyzw-server' };
+  const stdOpts: pino.LoggerOptions = {
+    level,
+    base,
+    // 可读时间戳(本地时区 ISO8601) + 字符串级别, 替代默认的 epoch 毫秒/数字级别
+    timestamp: localIsoTime,
+    formatters: {
+      level: (label) => ({ level: label }),
+    },
+  };
   if (CONFIG.isDev) {
     return pino({
-      level,
-      base,
+      ...stdOpts,
       transport: {
         target: 'pino-pretty',
         options: { colorize: true, translateTime: 'SYS:HH:MM:ss' },
@@ -72,7 +94,7 @@ function buildLogger(): pino.Logger {
     });
   }
   return pino(
-    { level, base },
+    stdOpts,
     pino.multistream([
       { level, stream: process.stdout as unknown as pino.DestinationStream },
       { level, stream: dailyFileDestination(path.join(CONFIG.dataDir, 'logs')) },
