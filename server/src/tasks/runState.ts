@@ -47,7 +47,13 @@ async function runTokenBatchQueue(tokenId: string, first: () => Promise<void>): 
   }
 }
 
-export type RunStatus = 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
+export type RunStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'partial'
+  | 'failed'
+  | 'cancelled';
 
 export interface TaskLogInput {
   runId: string;

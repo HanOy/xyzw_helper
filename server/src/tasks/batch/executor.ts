@@ -25,6 +25,7 @@ export function runBatchOperations(
   });
 
   void (async () => {
+    let failedCount = 0;
     try {
       for (let i = 0; i < opts.tokenIds.length; i++) {
     if (isCancelled(batchId)) {
@@ -51,6 +52,7 @@ export function runBatchOperations(
         await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
         taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
       } catch (err) {
+        failedCount += 1;
         taskLog({
           runId: batchId,
           tokenId,
@@ -62,9 +64,23 @@ export function runBatchOperations(
     taskProgress(batchId, i + 1, opts.tokenIds.length, tokenName);
       }
 
-      updateRun(batchId, { status: 'success', finishedAt: new Date().toISOString() });
-      taskLog({ runId: batchId, level: 'info', message: '批量操作完成' });
-      onComplete?.('success');
+      const total = opts.tokenIds.length;
+      const status = failedCount === 0 ? 'success' : failedCount >= total ? 'failed' : 'partial';
+      updateRun(batchId, {
+        status,
+        finishedAt: new Date().toISOString(),
+        error: failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined,
+      });
+      if (failedCount > 0) {
+        taskLog({
+          runId: batchId,
+          level: failedCount >= total ? 'error' : 'warn',
+          message: `批量操作完成: 成功 ${total - failedCount}/${total}`,
+        });
+      } else {
+        taskLog({ runId: batchId, level: 'info', message: '批量操作完成' });
+      }
+      onComplete?.(status === 'success' ? 'success' : 'failed', failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined);
     } catch (err) {
       const message = (err as Error).message;
       updateRun(batchId, { status: 'failed', finishedAt: new Date().toISOString(), error: message });
