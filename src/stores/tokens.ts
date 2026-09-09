@@ -16,6 +16,88 @@ export interface TokenGroup {
 
 export const tokenGroups = useLocalStorage<TokenGroup[]>('tokenGroups', []);
 
+// ===== 查询命令缓存(sessionStorage, 关页面即失效) =====
+const READ_ONLY_CMDS = new Set([
+  'role_getroleinfo',
+  'presetteam_getinfo',
+  'presetteam_getteaminfo',
+  'tower_getinfo',
+  'evotower_getinfo',
+  'legion_getinfo',
+  'legion_getarearank',
+  'store_goodslist',
+  'activity_get',
+]);
+
+const READ_CACHE_PREFIX = 'read-cache:';
+const READ_CACHE_LRU_MAX = 20;
+
+function readCacheKey(
+  tokenId: string,
+  cmd: string,
+  params?: Record<string, unknown>,
+): string {
+  return `${READ_CACHE_PREFIX}${tokenId}:${cmd}:${JSON.stringify(params ?? {})}`;
+}
+
+function getCachedRead(
+  tokenId: string,
+  cmd: string,
+  params?: Record<string, unknown>,
+): unknown | null {
+  if (!READ_ONLY_CMDS.has(cmd)) return null;
+  try {
+    const raw = sessionStorage.getItem(readCacheKey(tokenId, cmd, params));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function setCachedRead(
+  tokenId: string,
+  cmd: string,
+  params: Record<string, unknown> | undefined,
+  data: unknown,
+): void {
+  if (!READ_ONLY_CMDS.has(cmd) || data === undefined) return;
+  const k = readCacheKey(tokenId, cmd, params);
+  try {
+    sessionStorage.setItem(k, JSON.stringify(data));
+    const prefix = `${READ_CACHE_PREFIX}${tokenId}:`;
+    const matched = Object.keys(sessionStorage).filter((x) => x.startsWith(prefix));
+    if (matched.length > READ_CACHE_LRU_MAX) {
+      matched
+        .slice(0, matched.length - READ_CACHE_LRU_MAX)
+        .forEach((x) => sessionStorage.removeItem(x));
+    }
+  } catch {
+    // ignore quota / serialization errors
+  }
+}
+
+/** 清除指定 token 的查询缓存; 不传 tokenId 则清除全部 */
+export function clearReadCache(tokenId?: string): void {
+  if (tokenId) {
+    const prefix = `${READ_CACHE_PREFIX}${tokenId}:`;
+    Object.keys(sessionStorage)
+      .filter((k) => k.startsWith(prefix))
+      .forEach((k) => sessionStorage.removeItem(k));
+  } else {
+    Object.keys(sessionStorage)
+      .filter((k) => k.startsWith(READ_CACHE_PREFIX))
+      .forEach((k) => sessionStorage.removeItem(k));
+  }
+}
+
+const inflightReads = new Map<string, Promise<unknown>>();
+const inflightKeyOf = (
+  tokenId: string,
+  cmd: string,
+  params?: Record<string, unknown>,
+): string => `${tokenId}:${cmd}:${JSON.stringify(params ?? {})}`;
+
 export const useTokensStore = defineStore('tokens', () => {
   const tokens = ref<ApiToken[]>([]);
   const selectedTokenId = ref<string>(localStorage.getItem('selectedTokenId') ?? '');
@@ -57,6 +139,8 @@ export const useTokensStore = defineStore('tokens', () => {
       } else if (evt.type === 'game.event') {
         const msg = evt.msg as Record<string, unknown>;
         routeGameEvent(evt.tokenId, msg);
+        // 游戏服主动推送意味着该 token 状态变化, 清掉查询缓存让下次主动拉取拿到最新数据
+        clearReadCache(evt.tokenId);
       } else if (evt.type === 'task.log') {
         logs.value.push({
           id: logs.value.length + 1,
@@ -73,7 +157,8 @@ export const useTokensStore = defineStore('tokens', () => {
 
   function setSelectedToken(id: string): void {
     selectedTokenId.value = id;
-    localStorage.setItem('selectedTokenId', id);
+    // 用 sessionStorage: 关页面即失效, 不会跨日/跨页面反复触发对同一 token 的命令
+    sessionStorage.setItem('selectedTokenId', id);
   }
 
   async function refresh(): Promise<void> {
@@ -284,6 +369,31 @@ export const useTokensStore = defineStore('tokens', () => {
     params?: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<unknown> {
+    // 查询类命令走 sessionStorage 缓存 + in-flight 去重
+    if (READ_ONLY_CMDS.has(cmd)) {
+      const cached = getCachedRead(tokenId, cmd, params);
+      if (cached !== null) return cached;
+      const key = inflightKeyOf(tokenId, cmd, params);
+      let p = inflightReads.get(key);
+      if (!p) {
+        p = (async () => {
+          try {
+            const resp = await api.tokens.command(
+              tokenId,
+              cmd,
+              params ?? {},
+              timeoutMs ?? 8000,
+            );
+            setCachedRead(tokenId, cmd, params, resp.data);
+            return resp.data;
+          } finally {
+            inflightReads.delete(key);
+          }
+        })();
+        inflightReads.set(key, p);
+      }
+      return p;
+    }
     const resp = await api.tokens.command(tokenId, cmd, params ?? {}, timeoutMs ?? 8000);
     return resp.data;
   }

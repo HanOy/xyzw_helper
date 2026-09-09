@@ -18,6 +18,17 @@
               </n-icon>
               <span>{{ connectionStatusText }}</span>
             </div>
+            <n-button
+              circle
+              size="small"
+              :disabled="!isConnected"
+              :loading="refreshingGameData"
+              @click="refreshGameData"
+            >
+              <template #icon>
+                <n-icon><Refresh /></n-icon>
+              </template>
+            </n-button>
           </div>
         </div>
       </div>
@@ -90,7 +101,8 @@ import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useMessage } from "naive-ui";
 import { useTokenStore } from "@/stores/tokenStore";
-import { CloudDone } from "@vicons/ionicons5";
+import { clearReadCache } from "@/stores/tokens";
+import { CloudDone, Refresh } from "@vicons/ionicons5";
 
 const router = useRouter();
 const message = useMessage();
@@ -98,6 +110,7 @@ const tokenStore = useTokenStore();
 
 // 响应式数据
 const showFeedback = ref(true);
+const refreshingGameData = ref(false);
 const lastActivity = ref(null);
 
 // 计算属性
@@ -256,6 +269,24 @@ const initializeGameData = async () => {
     tokenStore.setBattleVersion(res?.battleData?.version);
   } catch (error) {
     // 静默处理初始化异常
+  }
+};
+
+// 手动刷新: 清空查询缓存 + 重跑初始化
+const refreshGameData = async () => {
+  if (!tokenStore.selectedToken) {
+    message.warning("请先选择 Token");
+    return;
+  }
+  refreshingGameData.value = true;
+  try {
+    clearReadCache(tokenStore.selectedToken.id);
+    await initializeGameData();
+    message.success("已刷新");
+  } catch (error) {
+    message.error(`刷新失败: ${error.message || error}`);
+  } finally {
+    refreshingGameData.value = false;
   }
 };
 
