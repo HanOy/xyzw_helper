@@ -151,6 +151,9 @@ export const useTokensStore = defineStore('tokens', () => {
           ts: evt.ts,
         });
         if (logs.value.length > 1000) logs.value.splice(0, 100);
+      } else if (evt.type === 'token.refresh_suggested') {
+        // 后端检测到该 token 续期需要 (例如握手失败), 触发自动续期
+        void attemptTokenRefresh(evt.tokenId);
       }
     },
   });
@@ -324,6 +327,52 @@ export const useTokensStore = defineStore('tokens', () => {
       success: n > 0,
       message: n > 0 ? `已导入 ${n} 个Token` : '没有可导入的Token',
     };
+  }
+
+  const tokenRefreshThrottle = ref<Record<string, number>>({});
+  const TOKEN_REFRESH_COOLDOWN_MS = 10_000;
+
+  function emitToast(level: 'info' | 'success' | 'warning' | 'error', message: string): void {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('app:toast', { detail: { level, message } }));
+    }
+  }
+
+  /**
+   * 尝试自动续期 Token
+   * - URL 类型: 后端 fetch sourceUrl 重新转换 (自动)
+   * - bin / wxQrcode: 没有原始 bin, 无法自动续期, 提示重新导入
+   * 10s 冷却保护: 每 token 10s 内最多一次
+   */
+  async function attemptTokenRefresh(tokenId: string): Promise<boolean> {
+    const now = Date.now();
+    const last = tokenRefreshThrottle.value[tokenId] ?? 0;
+    if (now - last < TOKEN_REFRESH_COOLDOWN_MS) return false;
+    tokenRefreshThrottle.value[tokenId] = now;
+
+    const t = tokens.value.find((x) => x.id === tokenId);
+    if (!t) return false;
+    const tokenName = t.name;
+
+    emitToast('info', `${tokenName} 正在尝试自动续期...`);
+    try {
+      if (t.importMethod !== 'url') {
+        emitToast('warning', `${tokenName} 凭证已过期, 请重新扫码导入 (该类型暂支持手动续期)`);
+        return false;
+      }
+      const data = await api.tokens.refresh(tokenId);
+      if (!data?.success || !data?.data) {
+        emitToast('error', `${tokenName} 续期失败: ${data?.message ?? '未知错误'}`);
+        return false;
+      }
+      await refresh();
+      await connect(tokenId).catch(() => undefined);
+      emitToast('success', `${tokenName} 已自动续期并重新连接`);
+      return true;
+    } catch (err) {
+      emitToast('error', `${tokenName} 续期异常: ${(err as Error).message ?? err}`);
+      return false;
+    }
   }
 
   async function clearAllTokens(): Promise<void> {
@@ -678,5 +727,6 @@ export const useTokensStore = defineStore('tokens', () => {
     getGroupTokenIds,
     getValidGroupTokenIds,
     cleanupInvalidTokens,
+    attemptTokenRefresh,
   };
 });

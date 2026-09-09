@@ -76,6 +76,8 @@ export const api = {
     update: (id: string, patch: unknown) => request.patch(`/tokens/${id}`, patch),
     delete: (id: string) => request.delete(`/tokens/${id}`),
     refresh: (id: string) => request.post(`/tokens/${id}/refresh`),
+    refreshTokenValue: (id: string, token: string) =>
+      request.put(`/tokens/${id}/refresh-token`, { token }),
     connect: (id: string) => request.post(`/tokens/${id}/connect`),
     disconnect: (id: string) => request.post(`/tokens/${id}/disconnect`),
     status: (id: string) => request.get(`/tokens/${id}/status`),

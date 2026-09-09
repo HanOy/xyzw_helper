@@ -265,12 +265,32 @@ export class TokenService {
     const data = await fetchUrlToken(row.source_url);
     const binBuf = decodeBinInput(data);
     const auth = await transformToken(binBuf);
+    return this.persistNewAuth(row, auth);
+  }
+
+  /**
+   * 用前端已抓到的新 token JSON 替换旧 token (用于前端缓存中拿到了新值, 直接上报服务端)
+   */
+  async refreshTokenValue(id: string, newAuthJson: string): Promise<TokenPublic> {
+    const row = db.prepare('SELECT * FROM tokens WHERE id = ?').get(id) as TokenRow | undefined;
+    if (!row) throw new Error('token 不存在');
+    let auth: unknown;
+    try {
+      auth = JSON.parse(newAuthJson);
+    } catch {
+      throw new Error('新 token JSON 解析失败');
+    }
+    if (!auth || typeof auth !== 'object') throw new Error('新 token JSON 不合法');
+    return this.persistNewAuth(row, auth);
+  }
+
+  private persistNewAuth(row: TokenRow, auth: unknown): TokenPublic {
     const vault = getVault();
     const enc = vault.encrypt(JSON.stringify(auth));
     const now = new Date().toISOString();
     db.prepare(
       'UPDATE tokens SET encrypted = ?, iv = ?, auth_tag = ?, updated_at = ? WHERE id = ?',
-    ).run(enc.encrypted, enc.iv, enc.authTag, now, id);
+    ).run(enc.encrypted, enc.iv, enc.authTag, now, row.id);
     const updated: TokenRow = {
       ...row,
       encrypted: enc.encrypted,

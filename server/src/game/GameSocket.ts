@@ -13,11 +13,13 @@ const wsLog = logger.child({ mod: 'ws' });
 
 export interface GameSocketOptions {
   url: string;
+  tokenId?: string;
   heartbeatMs?: number;
   sendQueueIntervalMs?: number;
   reconnectDelayMs?: number;
   reconnectStableMs?: number;
   maxReconnectDelayMs?: number;
+  onHandshakeFailed?: (tokenId: string) => void;
 }
 
 interface QueueTask {
@@ -64,6 +66,8 @@ const PROBE_INTERVAL_MS = 90 * 1000;
 
 export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly url: string;
+  private readonly tokenId: string | undefined;
+  private readonly onHandshakeFailed: ((tokenId: string) => void) | undefined;
   private readonly heartbeatMs: number;
   private readonly sendQueueIntervalMs: number;
   private readonly reconnectDelayMs: number;
@@ -71,6 +75,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly maxReconnectDelayMs: number;
   private stableTimer: NodeJS.Timeout | null = null;
   private probeTimer: NodeJS.Timeout | null = null;
+  private everOpened = false;
 
   private ws: WebSocket | null = null;
   private status: GameSocketStatus = 'disconnected';
@@ -91,6 +96,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   constructor(options: GameSocketOptions) {
     super();
     this.url = options.url;
+    this.tokenId = options.tokenId;
+    this.onHandshakeFailed = options.onHandshakeFailed;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
@@ -135,6 +142,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       }
 
       const onOpen = () => {
+        this.everOpened = true;
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
@@ -182,6 +190,14 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       const onClose = (code: number, reasonBuf: Buffer) => {
         const reason = reasonBuf?.toString() ?? '';
         wsLog.info({ code, reason, reconnectAttempts: this.reconnectAttempts }, 'ws closed');
+        // 握手失败 (1006 + 从未 open) → 通知上层尝试刷新 token
+        if (!this.everOpened && code === 1006 && this.tokenId && this.onHandshakeFailed) {
+          try {
+            this.onHandshakeFailed(this.tokenId);
+          } catch (err) {
+            wsLog.warn({ err: (err as Error).message }, 'onHandshakeFailed callback threw');
+          }
+        }
         this.cleanup();
         this.setStatus('disconnected', reason || `code ${code}`);
         if (!this.intentionalClose) {

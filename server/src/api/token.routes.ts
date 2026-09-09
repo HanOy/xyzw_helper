@@ -78,6 +78,23 @@ export function registerTokenRoutes(app: FastifyInstance): void {
     },
   );
 
+  app.put<{ Params: { id: string }; Body: { token: string } }>(
+    '/api/tokens/:id/refresh-token',
+    { preHandler: app.authPreHandler },
+    async (req, reply) => {
+      try {
+        const t = await tokenService.refreshTokenValue(
+          req.params.id,
+          req.body?.token ?? '',
+        );
+        return { success: true, data: t };
+      } catch (err) {
+        reply.code(400);
+        return { success: false, message: (err as Error).message };
+      }
+    },
+  );
+
   app.get<{ Params: { id: string } }>(
     '/api/tokens/:id/data',
     { preHandler: app.authPreHandler },

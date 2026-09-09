@@ -69,7 +69,11 @@ export class ConnectionPool {
     }
 
     const wsUrl = meta.wsUrl ?? this.buildGameWsUrl(meta);
-    const socket = new GameSocket({ url: wsUrl });
+    const socket = new GameSocket({
+      url: wsUrl,
+      tokenId: meta.id,
+      onHandshakeFailed: (tokenId: string) => this.notifyTokenRefreshNeeded(tokenId, 'handshake_failed'),
+    });
     const entry: PoolEntry = {
       socket,
       meta,
@@ -175,6 +179,20 @@ export class ConnectionPool {
 
   private emitStatus(tokenId: string, status: GameSocketStatus, error?: string): void {
     bus.emit('status', { type: 'ws.status', tokenId, status, error });
+  }
+
+  /**
+   * 通知前端尝试刷新 Token (URL 导入有效; bin/wxQrcode 仅提示重新导入)
+   * 通过 SSE 事件 token.refresh_suggested 传递
+   */
+  notifyTokenRefreshNeeded(tokenId: string, reason: string): void {
+    const t = tokenService.get(tokenId);
+    // 不是 URL 类型的直接发提示给前端(前端无法自动续期,需要重新导入)
+    bus.emit('event', {
+      type: 'token.refresh_suggested',
+      tokenId,
+      reason: t && t.importMethod !== 'url' ? `${reason}:non-url` : reason,
+    });
   }
 
   private persistIfRelevant(tokenId: string, msg: GameMessage): void {

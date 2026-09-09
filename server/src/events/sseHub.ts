@@ -66,6 +66,12 @@ class SseHub {
             !client.tokenIds.has(payload.tokenId)
           )
             return;
+          if (
+            client.tokenIds &&
+            payload.type === 'token.refresh_suggested' &&
+            !client.tokenIds.has(payload.tokenId)
+          )
+            return;
           writeEvent(controller, payload);
         };
         const onStatus = (payload: BusEvent) => onEvent(payload);

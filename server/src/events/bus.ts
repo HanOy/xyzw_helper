@@ -8,7 +8,8 @@ export type BusEvent =
   | { type: 'task.log'; runId: string; tokenId?: string; level: 'info' | 'warn' | 'error' | 'success'; message: string; ts: string }
   | { type: 'task.progress'; runId: string; current: number; total: number; stage?: string }
   | { type: 'sse.attach'; tokenIds: string[] | null }
-  | { type: 'sse.detach'; tokenIds: string[] | null };
+  | { type: 'sse.detach'; tokenIds: string[] | null }
+  | { type: 'token.refresh_suggested'; tokenId: string; reason: string };
 
 class TypedBus {
   private emitter: EventEmitter3;

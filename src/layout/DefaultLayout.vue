@@ -141,7 +141,7 @@ import {
 
 import { useRouter } from 'vue-router'
 import { useMessage, useDialog } from 'naive-ui'
-import { ref } from 'vue'
+import { onBeforeUnmount, ref } from 'vue'
 
 const tokenStore = useTokenStore();
 const router = useRouter();
@@ -149,6 +149,33 @@ const message = useMessage();
 const dialog = useDialog();
 
 const isMobileMenuOpen = ref(false);
+
+// 监听全局 app:toast 事件 (来自 store 内部触发的 toast, 比如 token 自动续期)
+const onAppToast = (e) => {
+  const d = e && e.detail;
+  if (!d || !d.message) return;
+  switch (d.level) {
+    case 'success':
+      message.success(d.message);
+      break;
+    case 'warning':
+      message.warning(d.message);
+      break;
+    case 'error':
+      message.error(d.message);
+      break;
+    default:
+      message.info(d.message);
+  }
+};
+if (typeof window !== 'undefined') {
+  window.addEventListener('app:toast', onAppToast);
+}
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('app:toast', onAppToast);
+  }
+});
 
 const userMenuOptions = [
   {
