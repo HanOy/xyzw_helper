@@ -4259,7 +4259,8 @@ const clearAllItems = () => {
 
 const loadSettings = (tokenId) => {
   try {
-    const raw = settingsStore.getItem(`daily-settings:${tokenId}`);
+    const roleId = tokenStore.getRoleIdByTokenId(tokenId) ?? tokenId;
+    const raw = settingsStore.getItem(`daily-settings:${roleId}`);
     const defaultSettings = {
       arenaFormation: 1,
       towerFormation: 1,
@@ -4290,8 +4291,9 @@ const openSettings = (token) => {
 
 const saveSettings = () => {
   if (currentSettingsTokenId.value) {
+    const roleId = tokenStore.getRoleIdByTokenId(currentSettingsTokenId.value) ?? currentSettingsTokenId.value;
     settingsStore.setItem(
-      `daily-settings:${currentSettingsTokenId.value}`,
+      `daily-settings:${roleId}`,
       JSON.stringify(currentSettings),
     );
     message.success(`已保存 ${currentSettingsTokenName.value} 的设置`);
@@ -4362,13 +4364,14 @@ const applyTemplate = () => {
   // 应用模板到选中的账号
   let successCount = 0;
   selectedTokensForApply.value.forEach((tokenId) => {
-    // 保存账号设置时同时保存模板ID
+    // 保存账号设置时同时保存模板ID (key 改用角色 roleId, 与 token 解绑)
     const accountSettings = {
       ...template.settings,
       templateId: template.id, // 记录模板ID
     };
+    const roleId = tokenStore.getRoleIdByTokenId(tokenId) ?? tokenId;
     settingsStore.setItem(
-      `daily-settings:${tokenId}`,
+      `daily-settings:${roleId}`,
       JSON.stringify(accountSettings),
     );
     successCount++;
@@ -4477,9 +4480,10 @@ const loadAccountTemplateReferences = () => {
   const templates = loadTaskTemplates();
   const references = [];
 
-  // 遍历所有账号，获取其模板引用
+  // 遍历所有账号，获取其模板引用 (按角色 roleId 查, 跨 token 重导仍能识别)
   sortedTokens.value.forEach((token) => {
-    const settingsStr = settingsStore.getItem(`daily-settings:${token.id}`);
+    const roleId = tokenStore.getRoleIdByTokenId(token.id) ?? token.id;
+    const settingsStr = settingsStore.getItem(`daily-settings:${roleId}`);
     if (settingsStr) {
       try {
         const settings = JSON.parse(settingsStr);

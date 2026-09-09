@@ -150,10 +150,14 @@ export class DailyTaskRunner {
     }
   }
 
-  loadSettings(roleId) {
+  loadSettings(roleIdOrTokenId) {
     try {
       const store = useSettingsStore();
-      const raw = store.getItem(`daily-settings:${roleId}`);
+      // 优先用角色业务 ID (跨 token 重导稳定), fallback tokenId (旧数据兼容)
+      const store2 = this.tokenStore;
+      const roleId = store2?.getRoleIdByTokenId?.(roleIdOrTokenId) ?? null;
+      const key = roleId ? `daily-settings:${roleId}` : `daily-settings:${roleIdOrTokenId}`;
+      const raw = store.getItem(key);
       const defaultSettings = {
         arenaFormation: 1,
         bossFormation: 1,

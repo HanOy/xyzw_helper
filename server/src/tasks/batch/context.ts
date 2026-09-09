@@ -1,6 +1,7 @@
 import { connectionPool } from '../../game/poolSingleton.js';
 import { tokenService } from '../../token/TokenService.js';
 import { getSetting } from '../../settings/settingsService.js';
+import { db } from '../../db/index.js';
 import { taskLog } from '../runState.js';
 import { logger } from '../../logger.js';
 import type { ConnectionMeta } from '../../game/ConnectionPool.js';
@@ -110,12 +111,29 @@ export class BatchContext {
   }
 
   async loadSettings(tokenId = this.tokenId): Promise<any> {
-    const raw = getSetting(`daily-settings:${tokenId}`);
+    const roleId = this.readRoleId(tokenId);
+    if (roleId == null) return defaultDailySettings();
+    const raw = getSetting(`daily-settings:${roleId}`);
     if (!raw) return defaultDailySettings();
     try {
       return { ...defaultDailySettings(), ...JSON.parse(raw) };
     } catch {
       return defaultDailySettings();
+    }
+  }
+
+  /** 从 role_cache 读出 token 对应游戏账号的 roleId (业务 ID, 跨 token 重导稳定) */
+  private readRoleId(tokenId: string): string | null {
+    try {
+      const row = db
+        .prepare("SELECT data FROM role_cache WHERE token_id = ? AND section = 'role'")
+        .get(tokenId) as { data: string } | undefined;
+      if (!row) return null;
+      const obj = JSON.parse(row.data) as { role?: { roleId?: number | string } };
+      const id = obj?.role?.roleId;
+      return id != null ? String(id) : null;
+    } catch {
+      return null;
     }
   }
 }

@@ -43,7 +43,7 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 | 定时任务 | 不绑定 Token | 触发时对**当前全部 Token** 执行; 「日常任务」(startBatch)=完整日常 runBatchDailyTasks, 可与其它勾选项叠加(先日常后单项); 执行器结果 success/partial/failed 如实上报 |
 | 游戏数据存储 | 按 token 分桶 | 前端 store 用 `gameDataByToken`, `gameData` 为 computed=当前选中账号切片; 写入方必须用 ensureGameData(tokenId), 严禁写全局单例 |
 | 日志 | pino stdout+文件双写 | 容器 TZ=Asia/Shanghai; 按天写 `<dataDir>/logs/xyzw-YYYY-MM-DD.log` 保留 3 天; ISO 时间戳+字符串级别 |
-| 设置持久化 key | 后端 settings 表 | `daily-settings:{tokenId}` / `dream-items:{tokenId}` / `batchSettings` / `task-templates`; 前端一律走 settingsStore, 禁止 localStorage 存配置 |
+| 设置持久化 key | 后端 settings 表; 角色维度 | `daily-settings:{roleId}` / `dream-items:{roleId}` / `batchSettings` / `task-templates`; roleId 取自 gameData.roleInfo.role.roleId (跨 token 重导稳定, 同一游戏账号自动复用); `batchSettings` 是全局; 前端一律走 settingsStore, 禁止 localStorage 存配置 |
 | 旧 Python bin 服务 | 删除 | 用户自建 URL 端点 |
 | Cloudflare worker.js | 删除 | |
 | src/xyzw/ (1.7M + 2.3M) | 删除 | 是 cocos2d-js-min.js 和游戏入口, 死代码 |

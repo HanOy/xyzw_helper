@@ -698,6 +698,14 @@ export const useTokensStore = defineStore('tokens', () => {
     login,
     logout,
     isAuthed,
+    /** 读取指定 token 的角色业务 ID (来自 roleInfo.role.roleId), 没有则回退到 tokenId */
+    getRoleIdByTokenId(tokenId: string): string | null {
+      const slot = gameDataByToken.value[tokenId];
+      const id = slot?.roleInfo?.role?.roleId;
+      if (id != null) return String(id);
+      const tk = tokens.value.find((t) => t.id === tokenId);
+      return tk ? tk.id : null;
+    },
     getWebSocketStatus,
     getWebSocketClient,
     initTokenStore,

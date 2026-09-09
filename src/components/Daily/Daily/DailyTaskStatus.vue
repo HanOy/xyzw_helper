@@ -539,11 +539,12 @@ const handleRefreshTaskStatus = async () => {
   }
 };
 
-// 辅助函数
+// 辅助函数: settings key 用游戏角色的 roleId (跨 token 重导稳定), 而非 tokenId
 const getCurrentRole = () => {
-  return tokenStore.selectedToken
-    ? { roleId: tokenStore.selectedToken.id }
-    : null;
+  const token = tokenStore.selectedToken;
+  if (!token) return null;
+  const roleId = tokenStore.gameData?.roleInfo?.role?.roleId;
+  return { roleId: roleId != null ? String(roleId) : token.id };
 };
 
 const loadSettings = async (roleId) => {
