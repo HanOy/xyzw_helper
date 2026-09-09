@@ -159,7 +159,7 @@ export class DailyTaskRunner {
       if (!key) return this.defaultSettings();
       const raw = store.getItem(key);
       const defaultSettings = {
-        arenaFormation: 1,
+        arenaFormation: 2,
         bossFormation: 1,
         bossTimes: 2,
         claimBottle: true,

@@ -113,7 +113,7 @@ export const taskColumns = [
 
 // 默认设置
 export const defaultSettings = {
-  arenaFormation: 1,
+  arenaFormation: 2,
   towerFormation: 1,
   bossFormation: 1,
   bossTimes: 2,
@@ -154,7 +154,7 @@ export const defaultBatchSettings = {
 
 // 默认模板
 export const defaultTemplate = {
-  arenaFormation: 1,
+  arenaFormation: 2,
   towerFormation: 1,
   bossFormation: 1,
   bossTimes: 2,

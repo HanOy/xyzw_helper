@@ -310,7 +310,7 @@ const logContainer = ref(null);
 
 // 任务设置
 const settings = reactive({
-  arenaFormation: 1,
+  arenaFormation: 2,
   bossFormation: 1,
   bossTimes: 2,
   claimBottle: true,

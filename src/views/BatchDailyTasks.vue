@@ -3195,7 +3195,7 @@ const showSettingsModal = ref(false);
 const currentSettingsTokenId = ref(null);
 const currentSettingsTokenName = ref("");
 const currentSettings = reactive({
-  arenaFormation: 1,
+  arenaFormation: 2,
   towerFormation: 1,
   bossFormation: 1,
   bossTimes: 2,
@@ -3219,7 +3219,7 @@ const selectedTokensForApply = ref([]);
 const currentTemplateName = ref("");
 const currentTemplateId = ref(null); // 用于编辑现有模板
 const currentTemplate = reactive({
-  arenaFormation: 1,
+  arenaFormation: 2,
   towerFormation: 1,
   bossFormation: 1,
   bossTimes: 2,
@@ -4258,7 +4258,7 @@ const clearAllItems = () => {
 // 注: formationOptions, bossTimesOptions 已从 @/utils/batch 导入
 
 const defaultDailySettings = () => ({
-  arenaFormation: 1,
+  arenaFormation: 2,
   towerFormation: 1,
   bossFormation: 1,
   bossTimes: 2,
@@ -4314,7 +4314,7 @@ const openTaskTemplateModal = () => {
   loadTaskTemplates();
   // 重置当前模板
   Object.assign(currentTemplate, {
-    arenaFormation: 1,
+    arenaFormation: 2,
     towerFormation: 1,
     bossFormation: 1,
     bossTimes: 2,
@@ -4463,7 +4463,7 @@ const resetTemplateForm = () => {
   currentTemplateId.value = null;
   currentTemplateName.value = "";
   Object.assign(currentTemplate, {
-    arenaFormation: 1,
+    arenaFormation: 2,
     towerFormation: 1,
     bossFormation: 1,
     bossTimes: 2,
