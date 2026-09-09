@@ -539,18 +539,19 @@ const handleRefreshTaskStatus = async () => {
   }
 };
 
-// 辅助函数: settings key 用游戏角色的 roleId (跨 token 重导稳定), 而非 tokenId
-const getCurrentRole = () => {
+// 辅助函数: settings key 用 token 的 nickname (跨 token 重导稳定)
+const getCurrentNickname = () => {
   const token = tokenStore.selectedToken;
   if (!token) return null;
-  const roleId = tokenStore.gameData?.roleInfo?.role?.roleId;
-  return { roleId: roleId != null ? String(roleId) : token.id };
+  return tokenStore.getNicknameByTokenId(token.id) ?? token.name ?? null;
 };
 
-const loadSettings = async (roleId) => {
+const loadSettings = async (nickname) => {
+  if (!nickname) return null;
   try {
-    await settingsStore.load(`daily-settings:${roleId}`);
-    const raw = settingsStore.getItem(`daily-settings:${roleId}`);
+    const key = `daily-settings:${nickname}`;
+    await settingsStore.load(key);
+    const raw = settingsStore.getItem(key);
     return raw ? JSON.parse(raw) : null;
   } catch (error) {
     console.error("Failed to load settings:", error);
@@ -558,9 +559,10 @@ const loadSettings = async (roleId) => {
   }
 };
 
-const saveSettings = (roleId, s) => {
+const saveSettings = (nickname, s) => {
+  if (!nickname) return;
   try {
-    settingsStore.setItem(`daily-settings:${roleId}`, JSON.stringify(s));
+    settingsStore.setItem(`daily-settings:${nickname}`, JSON.stringify(s));
   } catch (error) {
     console.error("Failed to save settings:", error);
   }
@@ -570,8 +572,8 @@ const saveSettings = (roleId, s) => {
 watch(
   settings,
   (cur) => {
-    const role = getCurrentRole();
-    if (role) saveSettings(role.roleId, cur);
+    const nickname = getCurrentNickname();
+    if (nickname) saveSettings(nickname, cur);
   },
   { deep: true },
 );
@@ -584,7 +586,8 @@ watch(
       log(`切换到Token: ${newToken.name}`);
 
       // 加载新token的设置
-      const saved = await loadSettings(newToken.id);
+      const nickname = tokenStore.getNicknameByTokenId(newToken.id) ?? newToken.name;
+      const saved = await loadSettings(nickname);
       if (saved) Object.assign(settings, saved);
 
       // 如果WebSocket已连接，尝试获取最新角色信息
@@ -625,9 +628,9 @@ onMounted(async () => {
     }
   }
 
-  const role = getCurrentRole();
-  if (role) {
-    const saved = await loadSettings(role.roleId);
+  const nickname = getCurrentNickname();
+  if (nickname) {
+    const saved = await loadSettings(nickname);
     if (saved) Object.assign(settings, saved);
   }
 

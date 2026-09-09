@@ -2,41 +2,56 @@ import { runDailyTasks, type DailyTaskSettings } from './DailyTaskRunner.js';
 import { createRun, taskLog, taskProgress, updateRun, isCancelled, enqueueBatchToken } from './runState.js';
 import { connectionPool } from '../game/poolSingleton.js';
 import { tokenService } from '../token/TokenService.js';
-import { getSetting } from '../settings/settingsService.js';
-import { db } from '../db/index.js';
+import { getSetting, listSettings, deleteSetting } from '../settings/settingsService.js';
 import { logger } from '../logger.js';
 
 const log = logger.child({ mod: 'task-runner' });
 
 let seeded = false;
 
+/** 清理以 tokenId/roleId 形式存在、但后缀不在当前 tokens.name 集合里的孤儿 settings */
+function cleanupOrphanSettings(): void {
+  try {
+    const validNames = new Set(
+      tokenService.list().map((t) => t.name).filter((n): n is string => !!n),
+    );
+    const removed: string[] = [];
+    for (const row of listSettings('daily-settings:')) {
+      const suffix = row.key.replace(/^daily-settings:/, '');
+      if (!validNames.has(suffix)) {
+        deleteSetting(row.key);
+        removed.push(row.key);
+      }
+    }
+    for (const row of listSettings('dream-items:')) {
+      const suffix = row.key.replace(/^dream-items:/, '');
+      if (!validNames.has(suffix)) {
+        deleteSetting(row.key);
+        removed.push(row.key);
+      }
+    }
+    if (removed.length > 0) {
+      log.info({ count: removed.length, sample: removed.slice(0, 5) }, '已清理孤儿 settings (tokenId/roleId 维度残留)');
+    }
+  } catch (err) {
+    log.warn({ err: (err as Error).message }, '清理孤儿 settings 失败');
+  }
+}
+
 export function seedTasksIfNeeded(): void {
   if (seeded) return;
   seeded = true;
   log.info('task runner seeded');
+  cleanupOrphanSettings();
 }
 
 /**
- * 从 role_cache 读出 token 对应游戏账号的 roleId (业务 ID, 跨 token 重导稳定)
+ * 用 token 的 nickname (tokens.name) 作 key 加载设置 (与 tokenId/roleId 解绑, 重扫码自动续接)
  */
-function readRoleIdFromCache(tokenId: string): string | null {
-  try {
-    const row = db
-      .prepare("SELECT data FROM role_cache WHERE token_id = ? AND section = 'role'")
-      .get(tokenId) as { data: string } | undefined;
-    if (!row) return null;
-    const obj = JSON.parse(row.data) as { role?: { roleId?: number | string } };
-    const id = obj?.role?.roleId;
-    return id != null ? String(id) : null;
-  } catch {
-    return null;
-  }
-}
-
 function loadTokenSettings(tokenId: string): DailyTaskSettings | undefined {
-  const roleId = readRoleIdFromCache(tokenId);
-  if (roleId == null) return undefined; // 还没拉过角色信息, 后续流程会先 role_getroleinfo
-  const raw = getSetting(`daily-settings:${roleId}`);
+  const token = tokenService.get(tokenId);
+  if (!token?.name) return undefined;
+  const raw = getSetting(`daily-settings:${token.name}`);
   if (!raw) return undefined;
   try {
     return JSON.parse(raw) as DailyTaskSettings;

@@ -153,18 +153,18 @@ const merchantData = ref({ 1: [], 2: [], 3: [] });
 const levelId = ref(0);
 const selectedItems = ref(new Set());
 
-// 梦境商品选择按 角色(roleId) 持久化, 跨 token 重导稳定
-function selectedRoleId() {
-  return tokenStore.getRoleIdByTokenId(tokenStore.selectedToken?.id ?? '') ??
-    tokenStore.selectedToken?.id ??
+// 梦境商品选择按 token 的 nickname 持久化, 跨 token 重导稳定
+function selectedNickname() {
+  return tokenStore.getNicknameByTokenId(tokenStore.selectedToken?.id ?? '') ??
+    tokenStore.selectedToken?.name ??
     null;
 }
 
 const loadSelectedItems = async () => {
-  const roleId = selectedRoleId();
-  if (!roleId) return;
+  const nickname = selectedNickname();
+  if (!nickname) return;
   try {
-    const raw = await settingsStore.load(`dream-items:${roleId}`);
+    const raw = await settingsStore.load(`dream-items:${nickname}`);
     const arr = raw ? JSON.parse(raw) : [];
     selectedItems.value = new Set(Array.isArray(arr) ? arr : []);
   } catch {
@@ -173,18 +173,18 @@ const loadSelectedItems = async () => {
 };
 
 const persistSelectedItems = () => {
-  const roleId = selectedRoleId();
-  if (!roleId) return;
+  const nickname = selectedNickname();
+  if (!nickname) return;
   settingsStore.setItem(
-    `dream-items:${roleId}`,
+    `dream-items:${nickname}`,
     JSON.stringify(Array.from(selectedItems.value)),
   );
 };
 
 watch(selectedItems, persistSelectedItems, { deep: true });
 watch(
-  // 监听 tokenId 或 roleInfo (roleId 可能后续才到达) 的变化, 都触发重新加载
-  () => [tokenStore.selectedToken?.id, tokenStore.gameData?.roleInfo?.role?.roleId],
+  // 监听 token 切换 + nickname 变化, 都触发重新加载
+  () => [tokenStore.selectedToken?.id, tokenStore.selectedToken?.name],
   () => void loadSelectedItems(),
 );
 onMounted(() => void loadSelectedItems());

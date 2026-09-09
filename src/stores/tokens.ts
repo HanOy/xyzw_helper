@@ -43,9 +43,7 @@ function readCacheKey(
   cmd: string,
   params?: Record<string, unknown>,
 ): string {
-  // role_getroleinfo 全局共享一个缓存 key
-  const keyId = cmd === 'role_getroleinfo' ? '__global__' : tokenId;
-  return `${READ_CACHE_PREFIX}${keyId}:${cmd}:${JSON.stringify(params ?? {})}`;
+  return `${READ_CACHE_PREFIX}${tokenId}:${cmd}:${JSON.stringify(params ?? {})}`;
 }
 
 function getCachedRead(
@@ -73,9 +71,7 @@ function setCachedRead(
   const k = readCacheKey(tokenId, cmd, params);
   try {
     sessionStorage.setItem(k, JSON.stringify(data));
-    // role_getroleinfo 走全局 bucket, 用 __global__ 标识
-    const cacheKey = cmd === 'role_getroleinfo' ? '__global__' : tokenId;
-    const prefix = `${READ_CACHE_PREFIX}${cacheKey}:`;
+    const prefix = `${READ_CACHE_PREFIX}${tokenId}:`;
     const matched = Object.keys(sessionStorage).filter((x) => x.startsWith(prefix));
     if (matched.length > READ_CACHE_LRU_MAX) {
       matched
@@ -449,10 +445,7 @@ export const useTokensStore = defineStore('tokens', () => {
         return cached;
       }
       // role_getroleinfo 走全局 in-flight 去重 (不分 token), 防止多 token 并发各自发一次
-      const key =
-        cmd === 'role_getroleinfo'
-          ? `__global__:role_getroleinfo`
-          : inflightKeyOf(tokenId, cmd, params);
+      const key = `__global__:role_getroleinfo`;
       let p = inflightReads.get(key);
       if (!p) {
         p = (async () => {
@@ -464,9 +457,7 @@ export const useTokensStore = defineStore('tokens', () => {
               timeoutMs ?? 8000,
             );
             setCachedRead(tokenId, cmd, params, resp.data);
-            if (cmd === 'role_getroleinfo') {
-              roleInfoSnapshot = { data: resp.data, at: Date.now() };
-            }
+            roleInfoSnapshot = { data: resp.data, at: Date.now() };
             return resp.data;
           } finally {
             inflightReads.delete(key);
@@ -733,13 +724,10 @@ export const useTokensStore = defineStore('tokens', () => {
     login,
     logout,
     isAuthed,
-    /** 读取指定 token 的角色业务 ID (来自 roleInfo.role.roleId), 没有则回退到 tokenId */
-    getRoleIdByTokenId(tokenId: string): string | null {
-      const slot = gameDataByToken.value[tokenId];
-      const id = slot?.roleInfo?.role?.roleId;
-      if (id != null) return String(id);
+    /** 读取指定 token 的 nickname (tokens.name), 永远有值 (不会 fallback) */
+    getNicknameByTokenId(tokenId: string): string | null {
       const tk = tokens.value.find((t) => t.id === tokenId);
-      return tk ? tk.id : null;
+      return tk?.name ?? null;
     },
     getWebSocketStatus,
     getWebSocketClient,

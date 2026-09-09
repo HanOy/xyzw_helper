@@ -4271,24 +4271,16 @@ const defaultDailySettings = () => ({
   blackMarketPurchase: true,
 });
 
-// 同时尝试 roleId 和 tokenId 两个 key, 优先使用有值的那一个 (兼容历史用 tokenId 保存的设置)
+// 用 token 的 nickname (tokens.name) 作 key 加载设置, 与 tokenId/roleId 解绑
 const loadSettings = async (tokenId) => {
   try {
-    const roleId = tokenStore.getRoleIdByTokenId(tokenId) ?? tokenId;
-    const roleIdKey = `daily-settings:${roleId}`;
-    const tokenIdKey = `daily-settings:${tokenId}`;
-    // 两次 load, 任一命中即可; 优先用 roleId 的, 因为那是真实游戏账号维度
-    await Promise.all([
-      settingsStore.load(roleIdKey),
-      settingsStore.load(tokenIdKey),
-    ]);
+    const nickname = tokenStore.getNicknameByTokenId(tokenId);
+    if (!nickname) return defaultDailySettings();
+    const key = `daily-settings:${nickname}`;
+    await settingsStore.load(key);
+    const raw = settingsStore.getItem(key);
     const defaults = defaultDailySettings();
-    const roleIdRaw = settingsStore.getItem(roleIdKey);
-    const tokenIdRaw = settingsStore.getItem(tokenIdKey);
-    // roleId 命中优先; 否则用 tokenId 历史数据; 再否则默认
-    if (roleIdRaw) return { ...defaults, ...JSON.parse(roleIdRaw) };
-    if (tokenIdRaw) return { ...defaults, ...JSON.parse(tokenIdRaw) };
-    return defaults;
+    return raw ? { ...defaults, ...JSON.parse(raw) } : defaults;
   } catch (error) {
     console.error("Failed to load settings:", error);
     return defaultDailySettings();
@@ -4305,9 +4297,10 @@ const openSettings = async (token) => {
 
 const saveSettings = () => {
   if (currentSettingsTokenId.value) {
-    const roleId = tokenStore.getRoleIdByTokenId(currentSettingsTokenId.value) ?? currentSettingsTokenId.value;
+    const nickname = tokenStore.getNicknameByTokenId(currentSettingsTokenId.value);
+    if (!nickname) return;
     settingsStore.setItem(
-      `daily-settings:${roleId}`,
+      `daily-settings:${nickname}`,
       JSON.stringify(currentSettings),
     );
     message.success(`已保存 ${currentSettingsTokenName.value} 的设置`);
@@ -4383,9 +4376,9 @@ const applyTemplate = () => {
       ...template.settings,
       templateId: template.id, // 记录模板ID
     };
-    const roleId = tokenStore.getRoleIdByTokenId(tokenId) ?? tokenId;
+    const nickname = tokenStore.getNicknameByTokenId(tokenId) ?? token.name;
     settingsStore.setItem(
-      `daily-settings:${roleId}`,
+      `daily-settings:${nickname}`,
       JSON.stringify(accountSettings),
     );
     successCount++;
@@ -4494,10 +4487,10 @@ const loadAccountTemplateReferences = () => {
   const templates = loadTaskTemplates();
   const references = [];
 
-  // 遍历所有账号，获取其模板引用 (按角色 roleId 查, 跨 token 重导仍能识别)
+  // 遍历所有账号，获取其模板引用 (按 nickname 查, 跨 token 重导仍能识别)
   sortedTokens.value.forEach((token) => {
-    const roleId = tokenStore.getRoleIdByTokenId(token.id) ?? token.id;
-    const settingsStr = settingsStore.getItem(`daily-settings:${roleId}`);
+    const nickname = tokenStore.getNicknameByTokenId(token.id) ?? token.name;
+    const settingsStr = settingsStore.getItem(`daily-settings:${nickname}`);
     if (settingsStr) {
       try {
         const settings = JSON.parse(settingsStr);
