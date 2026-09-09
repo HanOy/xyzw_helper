@@ -26,13 +26,18 @@ const CHECK_INTERVAL_MS = 60_000;
 
 let timer: NodeJS.Timeout | null = null;
 
-function executeTask(task: ScheduledTask): void {
-  // 定时任务不绑定固定 Token, 触发时对所有当前 Token 执行
+/**
+ * 定时任务执行核心 (自动 + 手动触发共用)
+ * - 实时取全部 Token, 不读取任务里可能过期的 tokenIds
+ * - 「日常任务」(startBatch) = 完整日常; 可与其其它项叠加, 串行执行
+ * - 返回首个 stage 的 batchId (前端手动执行需要)
+ */
+function runScheduledStages(task: ScheduledTask): string {
   const tokenIds = tokenService.list().map((t) => t.id);
   if (!tokenIds.length) {
-    log.warn({ taskId: task.id }, '当前没有Token, 定时任务跳过');
     markTaskRun(task.id, 'skipped', 'no tokens');
-    return;
+    log.warn({ taskId: task.id }, '当前没有Token, 定时任务跳过');
+    throw new Error('当前没有可用的Token');
   }
   log.info(
     { taskId: task.id, name: task.name, tokens: tokenIds.length },
@@ -40,13 +45,13 @@ function executeTask(task: ScheduledTask): void {
   );
   markTaskRun(task.id, 'running');
 
-  // 「日常任务」(startBatch) = 完整日常流程(runBatchDailyTasks);
-  // 其余勾选项逐个分发到 batch 引擎。两者可叠加, 顺序: 先日常后单项。
   const selected = task.selectedTasks ?? [];
   const rest = selected.filter((v) => v !== 'startBatch');
   const fullDaily = selected.length === 0 || selected.includes('startBatch');
 
-  type Stage = (cb: (status: 'success' | 'failed', error?: string) => void) => void;
+  type Stage = (
+    cb: (status: 'success' | 'failed', error?: string) => void,
+  ) => string;
   const stages: Stage[] = [];
   if (fullDaily) {
     stages.push((cb) => runBatchDailyTasks({ tokenIds }, cb));
@@ -62,6 +67,10 @@ function executeTask(task: ScheduledTask): void {
         cb,
       ),
     );
+  }
+  if (!stages.length) {
+    markTaskRun(task.id, 'skipped', 'no tasks selected');
+    throw new Error('定时任务没有可执行的内容');
   }
 
   let failures = 0;
@@ -86,11 +95,19 @@ function executeTask(task: ScheduledTask): void {
     }
   };
 
-  if (!stages.length) {
-    markTaskRun(task.id, 'skipped', 'no tasks selected');
-    return;
+  // 同步返回首个 stage 的 batchId, 避免 HTTP 长挂起
+  return stages[0](next);
+}
+
+function executeTask(task: ScheduledTask): void {
+  try {
+    runScheduledStages(task);
+  } catch (err) {
+    log.warn(
+      { taskId: task.id, err: (err as Error).message },
+      '定时任务触发失败',
+    );
   }
-  stages[0](next);
 }
 
 function tick(): void {
@@ -124,22 +141,5 @@ export function stopScheduler(): void {
 export function runScheduledTaskNow(id: string): string {
   const task = listScheduledTasks().find((t) => t.id === id);
   if (!task) throw new Error('定时任务不存在');
-  if (!task.tokenIds.length) throw new Error('定时任务没有选中任何 token');
-  markTaskRun(task.id, 'running');
-  const onDone = (status: 'success' | 'failed', error?: string) => {
-    if (status === 'success') markTaskRun(task.id, 'success');
-    else markTaskRun(task.id, 'failed', error);
-  };
-  const batchId = task.selectedTasks?.length
-    ? runBatchOperations(
-        {
-          tokenIds: task.tokenIds,
-          selectedTasks: task.selectedTasks,
-          settings: loadBatchSettings(),
-        },
-        onDone,
-      )
-    : runBatchDailyTasks({ tokenIds: task.tokenIds }, onDone);
-  // 同步返回 batchId, 不 await 整个长任务, 避免 HTTP 请求长时间挂起导致前端误判"执行失败"
-  return batchId;
+  return runScheduledStages(task);
 }
