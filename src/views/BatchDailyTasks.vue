@@ -4257,34 +4257,48 @@ const clearAllItems = () => {
 
 // 注: formationOptions, bossTimesOptions 已从 @/utils/batch 导入
 
-const loadSettings = (tokenId) => {
+const defaultDailySettings = () => ({
+  arenaFormation: 1,
+  towerFormation: 1,
+  bossFormation: 1,
+  bossTimes: 2,
+  claimBottle: true,
+  payRecruit: true,
+  openBox: true,
+  arenaEnable: true,
+  claimHangUp: true,
+  claimEmail: true,
+  blackMarketPurchase: true,
+});
+
+// 同时尝试 roleId 和 tokenId 两个 key, 优先使用有值的那一个 (兼容历史用 tokenId 保存的设置)
+const loadSettings = async (tokenId) => {
   try {
     const roleId = tokenStore.getRoleIdByTokenId(tokenId) ?? tokenId;
-    const raw = settingsStore.getItem(`daily-settings:${roleId}`);
-    const defaultSettings = {
-      arenaFormation: 1,
-      towerFormation: 1,
-      bossFormation: 1,
-      bossTimes: 2,
-      claimBottle: true,
-      payRecruit: true,
-      openBox: true,
-      arenaEnable: true,
-      claimHangUp: true,
-      claimEmail: true,
-      blackMarketPurchase: true,
-    };
-    return raw ? { ...defaultSettings, ...JSON.parse(raw) } : defaultSettings;
+    const roleIdKey = `daily-settings:${roleId}`;
+    const tokenIdKey = `daily-settings:${tokenId}`;
+    // 两次 load, 任一命中即可; 优先用 roleId 的, 因为那是真实游戏账号维度
+    await Promise.all([
+      settingsStore.load(roleIdKey),
+      settingsStore.load(tokenIdKey),
+    ]);
+    const defaults = defaultDailySettings();
+    const roleIdRaw = settingsStore.getItem(roleIdKey);
+    const tokenIdRaw = settingsStore.getItem(tokenIdKey);
+    // roleId 命中优先; 否则用 tokenId 历史数据; 再否则默认
+    if (roleIdRaw) return { ...defaults, ...JSON.parse(roleIdRaw) };
+    if (tokenIdRaw) return { ...defaults, ...JSON.parse(tokenIdRaw) };
+    return defaults;
   } catch (error) {
     console.error("Failed to load settings:", error);
-    return null;
+    return defaultDailySettings();
   }
 };
 
-const openSettings = (token) => {
+const openSettings = async (token) => {
   currentSettingsTokenId.value = token.id;
   currentSettingsTokenName.value = token.name;
-  const saved = loadSettings(token.id);
+  const saved = await loadSettings(token.id);
   Object.assign(currentSettings, saved);
   showSettingsModal.value = true;
 };

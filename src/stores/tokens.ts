@@ -32,12 +32,20 @@ const READ_ONLY_CMDS = new Set([
 const READ_CACHE_PREFIX = 'read-cache:';
 const READ_CACHE_LRU_MAX = 20;
 
+// role_getroleinfo 全局快照: 所有 token 共享, 用于阻断前端任何循环导致的反复 POST
+// (无论有多少个组件/卡片调 sendMessageWithPromise('role_getroleinfo'), 都直接返回这份快照,
+//  且任何"写快照"的动作 (routeGameEvent/真实网络响应) 都会更新它)
+let roleInfoSnapshot: { data: unknown; at: number } | null = null;
+const ROLE_INFO_SNAPSHOT_TTL_MS = 30_000;
+
 function readCacheKey(
   tokenId: string,
   cmd: string,
   params?: Record<string, unknown>,
 ): string {
-  return `${READ_CACHE_PREFIX}${tokenId}:${cmd}:${JSON.stringify(params ?? {})}`;
+  // role_getroleinfo 全局共享一个缓存 key
+  const keyId = cmd === 'role_getroleinfo' ? '__global__' : tokenId;
+  return `${READ_CACHE_PREFIX}${keyId}:${cmd}:${JSON.stringify(params ?? {})}`;
 }
 
 function getCachedRead(
@@ -65,7 +73,9 @@ function setCachedRead(
   const k = readCacheKey(tokenId, cmd, params);
   try {
     sessionStorage.setItem(k, JSON.stringify(data));
-    const prefix = `${READ_CACHE_PREFIX}${tokenId}:`;
+    // role_getroleinfo 走全局 bucket, 用 __global__ 标识
+    const cacheKey = cmd === 'role_getroleinfo' ? '__global__' : tokenId;
+    const prefix = `${READ_CACHE_PREFIX}${cacheKey}:`;
     const matched = Object.keys(sessionStorage).filter((x) => x.startsWith(prefix));
     if (matched.length > READ_CACHE_LRU_MAX) {
       matched
@@ -420,9 +430,29 @@ export const useTokensStore = defineStore('tokens', () => {
   ): Promise<unknown> {
     // 查询类命令走 sessionStorage 缓存 + in-flight 去重
     if (READ_ONLY_CMDS.has(cmd)) {
+      // role_getroleinfo 额外走"全局快照"短路: 任何组件调它都直接返回最近一份内存对象,
+      // 避免前端有未知循环时高频 POST 触发游戏服 200400
+      if (cmd === 'role_getroleinfo') {
+        if (
+          roleInfoSnapshot &&
+          Date.now() - roleInfoSnapshot.at < ROLE_INFO_SNAPSHOT_TTL_MS
+        ) {
+          return roleInfoSnapshot.data;
+        }
+      }
       const cached = getCachedRead(tokenId, cmd, params);
-      if (cached !== null) return cached;
-      const key = inflightKeyOf(tokenId, cmd, params);
+      if (cached !== null) {
+        // 回填全局快照 (即使来自 sessionStorage, 也让所有 token 共享同一份)
+        if (cmd === 'role_getroleinfo') {
+          roleInfoSnapshot = { data: cached, at: Date.now() };
+        }
+        return cached;
+      }
+      // role_getroleinfo 走全局 in-flight 去重 (不分 token), 防止多 token 并发各自发一次
+      const key =
+        cmd === 'role_getroleinfo'
+          ? `__global__:role_getroleinfo`
+          : inflightKeyOf(tokenId, cmd, params);
       let p = inflightReads.get(key);
       if (!p) {
         p = (async () => {
@@ -434,6 +464,9 @@ export const useTokensStore = defineStore('tokens', () => {
               timeoutMs ?? 8000,
             );
             setCachedRead(tokenId, cmd, params, resp.data);
+            if (cmd === 'role_getroleinfo') {
+              roleInfoSnapshot = { data: resp.data, at: Date.now() };
+            }
             return resp.data;
           } finally {
             inflightReads.delete(key);
@@ -504,6 +537,8 @@ export const useTokensStore = defineStore('tokens', () => {
 
     if (cmd === 'role_getroleinforesp' || cmd === 'role_getroleinfo') {
       gd.roleInfo = body;
+      // 更新全局快照, 让前端任何调 sendMessageWithPromise('role_getroleinfo') 都能在 5s 内短路
+      roleInfoSnapshot = { data: body, at: Date.now() };
       const study = (body as { role?: { study?: { maxCorrectNum?: number; beginTime?: number } } })?.role?.study;
       if (study?.maxCorrectNum !== undefined) {
         const isCompleted = study.maxCorrectNum >= 10 && isInCurrentWeek((study.beginTime ?? 0) * 1000);
