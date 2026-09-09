@@ -28,6 +28,8 @@ interface QueueTask {
   seq: number;
   respKey?: string;
   sleep?: number;
+  /** true = 响应不 emit 给上层 (bus / SSE), 仅用于清 pending, 例如 heart_beat */
+  noBus?: boolean;
 }
 
 interface PendingPromise {
@@ -61,9 +63,6 @@ const HEARTBEAT_CMD = '_sys/ack';
 /** 非手动掉线后持续重连的时间窗口：超过则置“异常”并停止尝试 */
 const RECONNECT_WINDOW_MS = 5 * 60 * 1000;
 
-/** 会话探活间隔：定期发送只读指令验证游戏会话是否仍然有效 */
-const PROBE_INTERVAL_MS = 90 * 1000;
-
 export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly url: string;
   private readonly tokenId: string | undefined;
@@ -74,7 +73,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly reconnectStableMs: number;
   private readonly maxReconnectDelayMs: number;
   private stableTimer: NodeJS.Timeout | null = null;
-  private probeTimer: NodeJS.Timeout | null = null;
+  // 标记不应推给前端的 seq (heart_beat 等纯保活命令), 响应收到后只清 pending/状态, 不 emit bus
+  private noBusSeqs = new Set<number>();
   private everOpened = false;
 
   private ws: WebSocket | null = null;
@@ -146,7 +146,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
-        this.startProbe();
         // 仅当连接稳定一段时间后才重置重连计数，避免"连上即断"导致无限重连
         if (this.stableTimer) clearTimeout(this.stableTimer);
         this.stableTimer = setTimeout(() => {
@@ -175,6 +174,17 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
             };
             if (typeof msg.seq === 'number') {
               this.ack = msg.seq;
+            }
+            // 纯保活命令的响应 (heart_beat ack _sys/ack) 不推给上层 (ConnectionPool / SSE)
+            if (msg.cmd === HEARTBEAT_CMD) {
+              this.resolvePromises(msg);
+              return;
+            }
+            // 其他标了 noBus 的命令响应: 走 pending 清理但不 emit
+            if (typeof msg.resp === 'number' && this.noBusSeqs.has(msg.resp)) {
+              this.noBusSeqs.delete(msg.resp);
+              this.resolvePromises(msg);
+              return;
             }
             this.emit('message', msg);
             this.resolvePromises(msg);
@@ -255,7 +265,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       clearTimeout(this.stableTimer);
       this.stableTimer = null;
     }
-    this.stopProbe();
+    this.noBusSeqs.clear();
     for (const [seq, p] of this.pending) {
       clearTimeout(p.timer);
       p.reject(new Error('connection closed'));
@@ -284,28 +294,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     }, this.sendQueueIntervalMs);
   }
 
-  private startProbe(): void {
-    this.stopProbe();
-    void this.probe();
-    this.probeTimer = setInterval(() => void this.probe(), PROBE_INTERVAL_MS);
-  }
-
-  private stopProbe(): void {
-    if (this.probeTimer) {
-      clearInterval(this.probeTimer);
-      this.probeTimer = null;
-    }
-  }
-
-  private async probe(): Promise<void> {
-    try {
-      await this.send('role_getroleinfo', {}, 5000);
-    } catch {
-      // 探活失败：会话可能已失效，若连接确实数去则关闭以触发重连
-      if (!this.isConnected()) this.ws?.close();
-    }
-  }
-
   private async executeTask(task: QueueTask): Promise<void> {
     const ack = this.ack;
     const bodyBytes = bon.encode({ ...getDefaultBody(task.cmd), ...task.params });
@@ -319,6 +307,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     const enc = g_utils.getEnc('x');
     const encoded = bonEncode(payload, enc);
     const buf = Buffer.from(encoded);
+    if (task.noBus && task.seq !== 0) this.noBusSeqs.add(task.seq);
     this.ws?.send(buf);
     if (task.sleep) {
       await new Promise((r) => setTimeout(r, task.sleep));
@@ -326,13 +315,14 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   }
 
   private sendHeartbeat(): void {
-    this.enqueue('heart_beat', {}, { respKey: HEARTBEAT_CMD, seq: 0 });
+    // 心跳响应不推给前端 (纯保活), 但响应仍会进入 resolvePromises 清掉 pending/状态
+    this.enqueue('heart_beat', {}, { respKey: HEARTBEAT_CMD, seq: 0, noBus: true });
   }
 
   private enqueue(
     cmd: string,
     params: Record<string, unknown>,
-    options: { seq?: number; respKey?: string; sleep?: number } = {},
+    options: { seq?: number; respKey?: string; sleep?: number; noBus?: boolean } = {},
   ): number {
     const seq = options.seq ?? (cmd === 'heart_beat' ? 0 : ++this.seq);
     this.sendQueue.push({
@@ -341,6 +331,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       seq,
       respKey: options.respKey ?? cmd,
       sleep: options.sleep,
+      noBus: options.noBus,
     });
     return seq;
   }

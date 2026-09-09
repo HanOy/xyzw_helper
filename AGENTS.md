@@ -38,7 +38,7 @@ wss://comb-platform.hortorgames.com  (游戏服, 不变)
 | WS 断连策略 | 不自动掉线 | 后端不主动断开空闲连接; 手动断开(`intentionalClose`)后不再自动重连, 需用户手动连接; 非手动掉线在 5 分钟内持续重连, 超时置 `error`(异常)并停止 |
 | 连接操作显式化 | 点击仅选中 | Token 卡片点击只切换选中不连断; 显式入口=列表连接按钮 / 右上角「连接全部(串行1s)/断开所有/退出登录」/ 控制台跳转 |
 | 启动自动重连 | 全部 Token | 监听端口后从 DB 读全部 token, 逐个串行 + 2.5s 间隔调现有 connect (避免同 IP 瞬时批量登录风控) |
-| 会话保活 | randomSeed 必须回传 | 收到角色信息响应即按 `last:login:time` 算种子发 `system_custom{key:'randomSeed'}` (按登录时间去重); 缺失会被游戏服 **~180s 强制踢线** (server/src/game/randomSeed.ts) |
+| 会话保活 | 心跳 + 种子分别处理 | **TCP 保活**: 5s 一次 `heart_beat`, 响应走 `_sys/ack` 单独路径, 响应仅在 GameSocket 内部消化 (不 emit bus / SSE), 前端完全无感知. **种子同步**: 收到任何 `role_getroleinforesp` 响应时, 按 `last:login:time` 算种子发 `system_custom{key:'randomSeed'}` (按登录时间去重); 缺失种子会被游戏服 **~180s 强制踢线** (server/src/game/randomSeed.ts) |
 | 战斗指令协议 | fight_startareaarena 必带 battleVersion | 经 `fight_startlevel` 动态获取 (响应体 battleData.version), 兜底 240475; 缺失服务端报 200750 |
 | 定时任务 | 不绑定 Token | 触发时对**当前全部 Token** 执行; 「日常任务」(startBatch)=完整日常 runBatchDailyTasks, 可与其它勾选项叠加(先日常后单项); 执行器结果 success/partial/failed 如实上报 |
 | 游戏数据存储 | 按 token 分桶 | 前端 store 用 `gameDataByToken`, `gameData` 为 computed=当前选中账号切片; 写入方必须用 ensureGameData(tokenId), 严禁写全局单例 |

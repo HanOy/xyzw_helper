@@ -90,6 +90,7 @@ export const commands = {
 
   // 学习问答
   study_startgame: {},
+  heart_beat: { _seq: 0, _ack: 0 },
   study_answer: {},
   study_claimreward: { rewardId: 1 },
 

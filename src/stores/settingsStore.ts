@@ -9,7 +9,8 @@ export const useSettingsStore = defineStore('settings', () => {
   async function hydrate(): Promise<void> {
     try {
       const res = await api.settings.list();
-      const rows = ((res as any)?.data?.data ?? []) as { key: string; value: string }[];
+      // axios 拦截器已经返回 {success, data} 这一层; data 内的 rows 直接是数组
+      const rows = ((res as any)?.data ?? []) as { key: string; value: string }[];
       const map: Record<string, string> = {};
       for (const r of rows) map[r.key] = r.value;
       cache.value = map;
@@ -24,7 +25,7 @@ export const useSettingsStore = defineStore('settings', () => {
     if (key in cache.value) return cache.value[key];
     try {
       const res = await api.settings.get(key);
-      const value = ((res as any)?.data?.data?.value as string) ?? null;
+      const value = ((res as any)?.data?.value as string) ?? null;
       if (value !== null) cache.value[key] = value;
       return value;
     } catch {
