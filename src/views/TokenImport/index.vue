@@ -848,71 +848,30 @@ const openshowImportForm = () => {
   showImportForm.value = true;
 };
 
-// 从源URL刷新Token(仅URL导入支持)
+// 刷新单个 Token (URL → refresh; bin/wxQrcode → refreshFromBin 后端 raw_bin 重 transform)
 const refreshToken = async (token) => {
-  if (!token.sourceUrl) {
-    message.info("该Token没有刷新源，如已失效请重新扫码或重新导入");
+  if (token.importMethod !== 'url' && token.importMethod !== 'wxQrcode' && token.importMethod !== 'bin') {
+    message.info(`${token.name} 手动导入的 Token 无法自动续期, 请重新扫码或导入`);
     return;
   }
   refreshingTokens.value.add(token.id);
 
   try {
-    if (token.importMethod === "url") {
-      // 有源URL的token - 从URL重新获取（使用限流）
-      const data = await scheduleAuthUserRequest(async () => {
-        let response;
-
-        const isLocalUrl =
-          token.sourceUrl.startsWith(window.location.origin) ||
-          token.sourceUrl.startsWith("/") ||
-          token.sourceUrl.startsWith("http://localhost") ||
-          token.sourceUrl.startsWith("http://127.0.0.1");
-
-        if (isLocalUrl) {
-          response = await fetch(token.sourceUrl);
-        } else {
-          try {
-            response = await fetch(token.sourceUrl, {
-              method: "GET",
-              headers: {
-                Accept: "application/json",
-              },
-              mode: "cors",
-            });
-          } catch (corsError) {
-            throw new Error(
-              `跨域请求被阻止。请确保目标服务器支持CORS。错误详情: ${corsError.message}`,
-            );
-          }
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            `请求失败: ${response.status} ${response.statusText}`,
-          );
-        }
-
-        const result = await response.json();
-
-        if (!result.token) {
-          throw new Error("返回数据中未找到token字段");
-        }
-
-        return result;
-      });
-
-      // 更新token信息
-      tokenStore.updateToken(token.id, {
-        token: data.token,
-        server: data.server || token.server,
-        lastRefreshed: Date.now(),
-      });
-
-      message.success("Token刷新成功");
+    let data;
+    if (token.importMethod === 'url') {
+      data = await api.tokens.refresh(token.id);
+    } else {
+      // bin / wxQrcode: 后端用存的加密 raw_bin 重 transform
+      data = await api.tokens.refreshFromBin(token.id);
     }
+    if (!data?.success) {
+      throw new Error(data?.message || '刷新失败');
+    }
+    message.success(`${token.name} Token 刷新成功`);
+    await tokenStore.refresh();
 
-    // 如果当前token有连接，需要重新连接
-    if (tokenStore.getWebSocketStatus(token.id) === "connected") {
+    // 如果当前token有连接, 断开后用新 token 重连
+    if (tokenStore.getWebSocketStatus(token.id) === 'connected') {
       tokenStore.closeWebSocketConnection(token.id);
       setTimeout(() => {
         tokenStore.createWebSocketConnection(
@@ -923,11 +882,10 @@ const refreshToken = async (token) => {
       }, 500);
     }
   } catch (error) {
-    console.error("刷新Token失败:", error);
-    message.error(error.message || "Token刷新失败");
+    console.error('刷新Token失败:', error);
+    message.error(error.message || 'Token刷新失败');
   } finally {
     refreshingTokens.value.delete(token.id);
-    // 关闭限流等待提示
     rateLimitWaiting.value = false;
   }
 };

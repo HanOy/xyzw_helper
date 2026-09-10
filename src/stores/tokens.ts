@@ -362,11 +362,21 @@ export const useTokensStore = defineStore('tokens', () => {
 
     emitToast('info', `${tokenName} 正在尝试自动续期...`);
     try {
-      if (t.importMethod !== 'url') {
-        emitToast('warning', `${tokenName} 凭证已过期, 请重新扫码导入 (该类型暂支持手动续期)`);
+      // 优先: URL 类型从 sourceUrl 重新拉取
+      // 兜底: 扫码/手动/bin 类型用后端存的 raw_bin 重 transformToken
+      // manual 类型无 raw_bin 时只能让用户重扫
+      let data: { success: boolean; data?: unknown; message?: string };
+      if (t.importMethod === 'url') {
+        data = await api.tokens.refresh(tokenId);
+      } else if (
+        t.importMethod === 'wxQrcode' ||
+        t.importMethod === 'bin'
+      ) {
+        data = await api.tokens.refreshFromBin(tokenId);
+      } else {
+        emitToast('warning', `${tokenName} 手动导入的 Token 无原始 bin, 无法自动续期, 请重新扫码/导入`);
         return false;
       }
-      const data = await api.tokens.refresh(tokenId);
       if (!data?.success || !data?.data) {
         emitToast('error', `${tokenName} 续期失败: ${data?.message ?? '未知错误'}`);
         return false;

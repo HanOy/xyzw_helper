@@ -109,6 +109,17 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.exec(SCHEMA_SQL);
 
+// 迁移: 为已存在的 tokens 表补充 raw_bin 三列 (better-sqlite3 ALTER TABLE 不支持 IF NOT EXISTS, 用 pragma 判断)
+function columnExists(table: string, col: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((r) => r.name === col);
+}
+for (const col of ['raw_bin_encrypted', 'raw_bin_iv', 'raw_bin_auth_tag']) {
+  if (!columnExists('tokens', col)) {
+    db.exec(`ALTER TABLE tokens ADD COLUMN ${col} TEXT`);
+  }
+}
+
 export function closeDb(): void {
   db.close();
 }

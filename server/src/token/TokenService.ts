@@ -22,6 +22,9 @@ export interface TokenRow {
   ws_url: string | null;
   upgraded: number;
   upgraded_at: string | null;
+  raw_bin_encrypted: string | null;
+  raw_bin_iv: string | null;
+  raw_bin_auth_tag: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -141,6 +144,8 @@ export class TokenService {
 
     const vault = getVault();
     const enc = vault.encrypt(encrypted);
+    // 加密原始 bin (扫码/手动/BIN 续期时直接重 transform, 无需重新扫码)
+    const rawBinEnc = vault.encrypt(binBuf.toString('base64'));
 
     const now = new Date().toISOString();
     const row: TokenRow = {
@@ -154,13 +159,16 @@ export class TokenService {
       ws_url: req.wsUrl ?? null,
       upgraded: 0,
       upgraded_at: null,
+      raw_bin_encrypted: rawBinEnc.encrypted,
+      raw_bin_iv: rawBinEnc.iv,
+      raw_bin_auth_tag: rawBinEnc.authTag,
       created_at: now,
       updated_at: now,
     };
 
     db.prepare(
-      `INSERT INTO tokens(id, name, server, remark, avatar, import_method, source_url, encrypted, iv, auth_tag, ws_url, upgraded, upgraded_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO tokens(id, name, server, remark, avatar, import_method, source_url, encrypted, iv, auth_tag, ws_url, upgraded, upgraded_at, raw_bin_encrypted, raw_bin_iv, raw_bin_auth_tag, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          remark = excluded.remark,
@@ -168,6 +176,9 @@ export class TokenService {
          encrypted = excluded.encrypted,
          iv = excluded.iv,
          auth_tag = excluded.auth_tag,
+         raw_bin_encrypted = excluded.raw_bin_encrypted,
+         raw_bin_iv = excluded.raw_bin_iv,
+         raw_bin_auth_tag = excluded.raw_bin_auth_tag,
          updated_at = excluded.updated_at`,
     ).run(
       row.id,
@@ -183,6 +194,9 @@ export class TokenService {
       row.ws_url,
       row.upgraded,
       row.upgraded_at,
+      row.raw_bin_encrypted,
+      row.raw_bin_iv,
+      row.raw_bin_auth_tag,
       row.created_at,
       now,
     );
@@ -210,6 +224,7 @@ export class TokenService {
       const auth = await transformToken(modified.bin);
       const vault = getVault();
       const enc = vault.encrypt(JSON.stringify(auth));
+      const rawBinEnc = vault.encrypt(modified.bin.toString('base64'));
       const now = new Date().toISOString();
       const row: TokenRow = {
         id,
@@ -222,17 +237,23 @@ export class TokenService {
         ws_url: item.wsUrl ?? null,
         upgraded: 0,
         upgraded_at: null,
+        raw_bin_encrypted: rawBinEnc.encrypted,
+        raw_bin_iv: rawBinEnc.iv,
+        raw_bin_auth_tag: rawBinEnc.authTag,
         created_at: now,
         updated_at: now,
       };
       db.prepare(
-        `INSERT INTO tokens(id, name, server, remark, avatar, import_method, source_url, encrypted, iv, auth_tag, ws_url, upgraded, upgraded_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO tokens(id, name, server, remark, avatar, import_method, source_url, encrypted, iv, auth_tag, ws_url, upgraded, upgraded_at, raw_bin_encrypted, raw_bin_iv, raw_bin_auth_tag, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            name = excluded.name,
            encrypted = excluded.encrypted,
            iv = excluded.iv,
            auth_tag = excluded.auth_tag,
+           raw_bin_encrypted = excluded.raw_bin_encrypted,
+           raw_bin_iv = excluded.raw_bin_iv,
+           raw_bin_auth_tag = excluded.raw_bin_auth_tag,
            updated_at = excluded.updated_at`,
       ).run(
         row.id,
@@ -248,6 +269,9 @@ export class TokenService {
         row.ws_url,
         row.upgraded,
         row.upgraded_at,
+        row.raw_bin_encrypted,
+        row.raw_bin_iv,
+        row.raw_bin_auth_tag,
         row.created_at,
         now,
       );
@@ -264,6 +288,28 @@ export class TokenService {
     }
     const data = await fetchUrlToken(row.source_url);
     const binBuf = decodeBinInput(data);
+    const auth = await transformToken(binBuf);
+    return this.persistNewAuth(row, auth);
+  }
+
+  /**
+   * 用后端存的加密原始 bin 重新调用 authuser 续期 (扫码/手动/BIN 类型)
+   * 流程: 解密 raw_bin → base64 decode → transformToken → 用新 token JSON 加密入库
+   */
+  async refreshFromBin(id: string): Promise<TokenPublic> {
+    const row = db.prepare('SELECT * FROM tokens WHERE id = ?').get(id) as TokenRow | undefined;
+    if (!row) throw new Error('token 不存在');
+    if (!row.raw_bin_encrypted || !row.raw_bin_iv || !row.raw_bin_auth_tag) {
+      throw new Error('该 Token 没有原始 bin 数据 (老导入或 URL 类型), 无法自动续期');
+    }
+    let binBase64: string;
+    try {
+      const vault = getVault();
+      binBase64 = vault.decrypt(row.raw_bin_encrypted, row.raw_bin_iv, row.raw_bin_auth_tag);
+    } catch (err) {
+      throw new Error(`解密原始 bin 失败: ${(err as Error).message}`);
+    }
+    const binBuf = Buffer.from(binBase64, 'base64');
     const auth = await transformToken(binBuf);
     return this.persistNewAuth(row, auth);
   }
