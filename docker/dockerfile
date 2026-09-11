@@ -14,19 +14,39 @@
 #  5. 服务端 prod 依赖拆成独立阶段 (只依赖 lockfile) —— 改 server/src 不再重跑 install/prune。
 #  6. COPY 全部带 --chown=node:node, 去掉运行时阶段的 chown -R / chmod -R 递归。
 #
-# 首次构建想更快: 如果 docker daemon 在国内, 可加镜像源
-#   docker compose -f docker/docker-compose.yml build --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+# 首次构建想更快: 如果 docker daemon 在国内, 强烈建议换源 (收益最大的是 APT_MIRROR)
+#   APT_MIRROR=mirrors.cloud.tencent.com      # apt 源域名, 只写域名不带 http://
+#   NPM_REGISTRY=https://registry.npmmirror.com
+# 两种传法:
+#   1) 写进 docker/.env (推荐, 每次 build 自动带上, 见 .env.example)
+#   2) docker compose -f docker/docker-compose.yml build \
+#        --build-arg APT_MIRROR=mirrors.cloud.tencent.com
 
 ARG NODE_IMAGE=node:20-bookworm-slim
 ARG NPM_REGISTRY=
+ARG APT_MIRROR=
 
 # --- Stage 0: 公共工具链 (apt 依赖 + pnpm), 只构建一次 ---
 FROM ${NODE_IMAGE} AS toolchain
+# 重新声明: 全局 ARG 必须在阶段内再声明一次才可用
+ARG APT_MIRROR
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# 这一层是首个构建的耗时大户: build-essential 会拉 ~150 个包 / 约 200MB
+# (光 gcc-12 就 19.3MB)。国内直连 deb.debian.org 实测单层要 1000s+;
+# 换国内镜像后同样内容几十秒就能下完, 且命中 apt cache mount 后不再重下。
+# APT_MIRROR 只填域名, 不带 http://  (例: mirrors.cloud.tencent.com / mirrors.aliyun.com)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends \
-      python3 build-essential ca-certificates && \
+    set -eux; \
+    if [ -n "${APT_MIRROR}" ]; then \
+      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
+        [ -f "$f" ] || continue; \
+        sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" "$f"; \
+      done; \
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      python3 build-essential ca-certificates; \
     rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
 
@@ -81,11 +101,11 @@ ENV NODE_ENV=production \
     PORT=8787 \
     XYZW_STATIC_DIR=/app/web
 
-# slim 镜像内没有 ca-certificates (所以 compose 的健康检查才改用 node fetch); 出站 https 需要它
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
-    rm -rf /var/lib/apt/lists/*
+# slim 镜像内没有 ca-certificates (所以 compose 的健康检查才改用 node fetch); 出站 wss/https 需要它。
+# 不在 runtime 阶段跑 apt —— 直接从 toolchain 拷 CA bundle (就是一个 ~200KB 的文件, Node/OpenSSL
+# 默认读 /etc/ssl/certs/ca-certificates.crt), 省掉一次 apt-get update (要下 ~30MB 索引),
+# 也让最终镜像不再依赖 apt/网络。
+COPY --from=toolchain /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 # 稳定层在前、易变层在后, 最大化层缓存复用
 COPY --from=server-runtime-deps --chown=node:node /app/server/node_modules /app/server/node_modules
