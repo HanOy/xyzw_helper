@@ -1,0 +1,56 @@
+# ============================================================
+# Docker 构建上下文过滤
+# 构建上下文 = 仓库根目录 (docker-compose.yml 里 context: ..)
+# 之前仓库里放的是 docker/dockerignore (没有前导点、名字也不对),
+# Docker 完全不识别, 于是每次 build 都会把 node_modules(~1.4GB / 30 万个文件)、
+# .git、dist、本地数据库一起打包传给 daemon, 光上下文传输就要几十秒。
+# ============================================================
+
+# ---------- 依赖与构建产物 (镜像内自己装 / 自己编) ----------
+node_modules
+**/node_modules
+dist
+**/dist
+
+# ---------- 运行时状态: SQLite / 密钥 / 日志 ----------
+data
+**/data
+*.db
+*.db-shm
+*.db-wal
+.session-key
+logs
+**/logs
+*.log
+**/*.log
+
+# ---------- 版本控制与编辑器 ----------
+.git
+**/.git
+.gitignore
+.github
+.vscode
+**/.vscode
+.idea
+**/.idea
+*.swp
+*.swo
+
+# ---------- 环境变量 (避免密钥进入构建上下文) ----------
+.env
+**/.env
+
+# ---------- 本地工具 / 缓存数据 ----------
+.workbuddy
+.claude
+.cache
+tmp
+temp
+
+# ---------- 文档与测试 (不参与镜像构建) ----------
+README.md
+AGENTS.md
+LICENSE
+**/*.md
+test
+server/test
