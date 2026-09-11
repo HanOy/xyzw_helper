@@ -54,7 +54,7 @@ FROM toolchain AS server-deps
 ARG NPM_REGISTRY
 WORKDIR /app/server
 COPY server/package.json server/pnpm-lock.yaml ./
-COPY server/.npmrc ./pnpm-workspace.yaml ./
+COPY server/.npmrc server/pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=pnpm-server,target=/pnpm/store \
     pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store \
       ${NPM_REGISTRY:+--registry=$NPM_REGISTRY}
