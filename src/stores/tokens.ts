@@ -454,8 +454,13 @@ export const useTokensStore = defineStore('tokens', () => {
         }
         return cached;
       }
-      // role_getroleinfo 走全局 in-flight 去重 (不分 token), 防止多 token 并发各自发一次
-      const key = `__global__:role_getroleinfo`;
+      // role_getroleinfo 走全局 in-flight 去重 (不分 token), 防止多 token 并发各自发一次;
+      // 其他只读命令必须按 token+cmd+params 分桶, 否则不同 token / 不同命令会复用到
+      // 同一个在飞 Promise (发向第一个发起者), 一个请求失败就会让所有并发方一起失败
+      const key =
+        cmd === 'role_getroleinfo'
+          ? `__global__:role_getroleinfo`
+          : inflightKeyOf(tokenId, cmd, params);
       let p = inflightReads.get(key);
       if (!p) {
         p = (async () => {
@@ -467,7 +472,12 @@ export const useTokensStore = defineStore('tokens', () => {
               timeoutMs ?? 8000,
             );
             setCachedRead(tokenId, cmd, params, resp.data);
-            roleInfoSnapshot = { data: resp.data, at: Date.now() };
+            // 只有 role_getroleinfo 的响应才能写全局快照;
+            // 否则 presetteam_getinfo / tower_getinfo 等响应会污染快照,
+            // 让后续 role_getroleinfo 直接短路返回"阵容/塔"数据
+            if (cmd === 'role_getroleinfo') {
+              roleInfoSnapshot = { data: resp.data, at: Date.now() };
+            }
             return resp.data;
           } finally {
             inflightReads.delete(key);
