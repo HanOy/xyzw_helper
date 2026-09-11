@@ -1,122 +1,62 @@
-# syntax=docker/dockerfile:1
-# ^ 需要 BuildKit (Docker Desktop / docker compose v2 默认开启)。
-#   若报 "unknown flag: mount" 说明用的是旧版构建器, 加 DOCKER_BUILDKIT=1 再构建。
-#   若拉不到 docker/dockerfile 这个 frontend 镜像 (网络受限), 删掉本行即可 —— 但
-#   Docker 20.10+ 的内置 frontend 仍支持 RUN --mount=type=cache。
-#
-# 提速要点 (相对旧版):
-#  1. 仓库根目录新增 .dockerignore 并生效 —— 旧文件叫 docker/dockerignore (少了前导点),
-#     Docker 不认, 每次 build 都把 ~1.4GB / 30 万文件的 node_modules 当上下文传输。
-#  2. toolchain 基镜像 —— apt(build-essential/python3) + pnpm 只装一次, 3 个阶段复用,
-#     原来 apt-get 跑 3 遍、corepack prepare pnpm 跑 4 遍。
-#  3. pnpm store 走 BuildKit cache mount —— 重复构建不再重新下载依赖 (改动越频繁收益越大)。
-#  4. 前端 / 后端两条链路互相独立, BuildKit 会并行构建。
-#  5. 服务端 prod 依赖拆成独立阶段 (只依赖 lockfile) —— 改 server/src 不再重跑 install/prune。
-#  6. COPY 全部带 --chown=node:node, 去掉运行时阶段的 chown -R / chmod -R 递归。
-#
-# 首次构建想更快: 如果 docker daemon 在国内, 强烈建议换源 (收益最大的是 APT_MIRROR)
-#   APT_MIRROR=mirrors.cloud.tencent.com      # apt 源域名, 只写域名不带 http://
-#   NPM_REGISTRY=https://registry.npmmirror.com
-# 两种传法:
-#   1) 写进 docker/.env (推荐, 每次 build 自动带上, 见 .env.example)
-#   2) docker compose -f docker/docker-compose.yml build \
-#        --build-arg APT_MIRROR=mirrors.cloud.tencent.com
-
-ARG NODE_IMAGE=node:20-bookworm-slim
-ARG NPM_REGISTRY=
-ARG APT_MIRROR=
-
-# --- Stage 0: 公共工具链 (apt 依赖 + pnpm), 只构建一次 ---
-FROM ${NODE_IMAGE} AS toolchain
-# 重新声明: 全局 ARG 必须在阶段内再声明一次才可用
-ARG APT_MIRROR
-ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-# 这一层是首个构建的耗时大户: build-essential 会拉 ~150 个包 / 约 200MB
-# (光 gcc-12 就 19.3MB)。国内直连 deb.debian.org 实测单层要 1000s+;
-# 换国内镜像后同样内容几十秒就能下完, 且命中 apt cache mount 后不再重下。
-# APT_MIRROR 只填域名, 不带 http://  (例: mirrors.cloud.tencent.com / mirrors.aliyun.com)
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    set -eux; \
-    if [ -n "${APT_MIRROR}" ]; then \
-      for f in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources; do \
-        [ -f "$f" ] || continue; \
-        sed -i "s|deb.debian.org|${APT_MIRROR}|g; s|security.debian.org|${APT_MIRROR}|g" "$f"; \
-      done; \
-    fi; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-      python3 build-essential ca-certificates; \
-    rm -rf /var/lib/apt/lists/*
-RUN corepack enable && corepack prepare pnpm@10.19.0 --activate
-
-# --- Stage 1: 前端依赖 (仅 package.json / lockfile 变化时失效) ---
-FROM toolchain AS web-deps
-ARG NPM_REGISTRY
+# --- Stage 1: install frontend deps ---
+FROM node:20-bookworm-slim AS web-deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN --mount=type=cache,id=pnpm-web,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store \
-      ${NPM_REGISTRY:+--registry=$NPM_REGISTRY}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY package.json pnpm-lock.yaml* ./
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    pnpm install --frozen-lockfile
 
-# --- Stage 2: 前端构建 (仅前端源码 / 配置变化时失效) ---
+# --- Stage 2: build frontend (only source files, no node_modules) ---
 FROM web-deps AS web-builder
 WORKDIR /app
+
 COPY index.html ./
 COPY public ./public
 COPY src ./src
 COPY vite.config.js tsconfig.json tsconfig.app.json tsconfig.node.json ./
 COPY uno.config.ts eslint.config.ts components.d.ts ./
+
 RUN pnpm run build
 
-# --- Stage 3: 服务端依赖 (含 devDeps, 供 tsc 编译) ---
-FROM toolchain AS server-deps
-ARG NPM_REGISTRY
+# --- Stage 3: install server deps (clean) ---
+FROM node:20-bookworm-slim AS server-deps
 WORKDIR /app/server
-COPY server/package.json server/pnpm-lock.yaml ./
-COPY server/.npmrc server/pnpm-workspace.yaml ./
-RUN --mount=type=cache,id=pnpm-server,target=/pnpm/store \
-    pnpm install --frozen-lockfile --prefer-offline --store-dir=/pnpm/store \
-      ${NPM_REGISTRY:+--registry=$NPM_REGISTRY}
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY server/package.json server/pnpm-lock.yaml* ./
+COPY server/.npmrc ./.npmrc
+COPY server/pnpm-workspace.yaml ./pnpm-workspace.yaml
+RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    pnpm install --frozen-lockfile
 
-# --- Stage 4: 服务端运行时依赖 (prod only) ---
-# 从 server-deps 派生: 该阶段只依赖 lockfile, 所以改 server/src 不会让它失效;
-# 就是旧版 "pnpm run build && pnpm prune --prod" 里的那步 prune, 只是单独拆了一层出来,
-# 避免每次改源码都要连带重跑一遍依赖裁剪。
-FROM server-deps AS server-runtime-deps
-RUN pnpm prune --prod
-
-# --- Stage 5: 服务端构建 (仅 server/src 变化时失效) ---
+# --- Stage 4: build server (only source files) ---
 FROM server-deps AS server-builder
 WORKDIR /app/server
 COPY server/tsconfig.json ./tsconfig.json
 COPY server/src ./src
-RUN pnpm run build
+RUN pnpm run build && \
+    pnpm prune --prod
 
-# --- Stage 6: 运行时 ---
-FROM ${NODE_IMAGE}
+# --- Stage 5: runtime ---
+FROM node:20-bookworm-slim
 WORKDIR /app
-ENV NODE_ENV=production \
-    HOST=0.0.0.0 \
-    PORT=8787 \
-    XYZW_STATIC_DIR=/app/web
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=8787
+ENV XYZW_STATIC_DIR=/app/web
 
-# slim 镜像内没有 ca-certificates (所以 compose 的健康检查才改用 node fetch); 出站 wss/https 需要它。
-# 不在 runtime 阶段跑 apt —— 直接从 toolchain 拷 CA bundle (就是一个 ~200KB 的文件, Node/OpenSSL
-# 默认读 /etc/ssl/certs/ca-certificates.crt), 省掉一次 apt-get update (要下 ~30MB 索引),
-# 也让最终镜像不再依赖 apt/网络。
-COPY --from=toolchain /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    corepack enable && corepack prepare pnpm@10.19.0 --activate
 
-# 稳定层在前、易变层在后, 最大化层缓存复用
-COPY --from=server-runtime-deps --chown=node:node /app/server/node_modules /app/server/node_modules
-COPY --from=server-builder      --chown=node:node /app/server/package.json /app/server/package.json
-COPY --from=web-builder         --chown=node:node /app/dist                /app/web
-COPY --from=server-builder      --chown=node:node /app/server/dist         /app/server/dist
-
-# /app/web 保留世界可读 (历史 EACCES 修复, commit 98a9ad0); 其余靠 --chown 表达归属
-RUN mkdir -p /app/server/data && chown node:node /app/server/data && chmod -R a+rX /app/web
+COPY --from=web-builder /app/dist /app/web
+COPY --from=server-builder /app/server/dist /app/server/dist
+COPY --from=server-builder /app/server/package.json /app/server/package.json
+COPY --from=server-builder /app/server/node_modules /app/server/node_modules
 
 WORKDIR /app/server
+RUN mkdir -p /app/server/data && chown -R node:node /app && chmod -R a+rX /app
 USER node
 
 EXPOSE 8787

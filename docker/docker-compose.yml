@@ -3,13 +3,6 @@ services:
     build:
       context: ..
       dockerfile: docker/dockerfile
-      args:
-        # 构建期镜像源: 只影响下载速度, 拉到的包与官方源内容一致 (靠 integrity 校验)。
-        # 默认给国内源 —— 首次构建要从 apt 下 build-essential 约 150 个包/200MB,
-        # 直连 deb.debian.org 实测单层 1000s+, 换国内源几十秒。
-        # 想改回/关闭官方源: 在 docker/.env 里写 APT_MIRROR= 和 NPM_REGISTRY= 置空即可。
-        APT_MIRROR: ${APT_MIRROR-mirrors.cloud.tencent.com}
-        NPM_REGISTRY: ${NPM_REGISTRY-https://registry.npmmirror.com}
     image: xyzw-web-helper:latest
     container_name: xyzw
     restart: unless-stopped
