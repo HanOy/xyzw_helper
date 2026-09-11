@@ -37,15 +37,19 @@ export class ConnectionPool {
   private refreshing = new Set<string>();
   private readonly maxConcurrent: number;
   private readonly intervalMs: number;
+  private readonly zombieIdleMs: number | undefined;
   private readonly defaultGameWsUrl: string;
 
   constructor(opts: {
     maxConcurrent?: number;
     intervalMs?: number;
+    /** 透传给 GameSocket 的僵尸连接判定阈值 (ms); 不传则用 GameSocket 默认 (heartbeatMs * 4) */
+    zombieIdleMs?: number;
     defaultGameWsUrl: string;
   }) {
     this.maxConcurrent = opts.maxConcurrent ?? 10;
     this.intervalMs = opts.intervalMs ?? 500;
+    this.zombieIdleMs = opts.zombieIdleMs;
     this.defaultGameWsUrl = opts.defaultGameWsUrl;
   }
 
@@ -75,6 +79,7 @@ export class ConnectionPool {
     const socket = new GameSocket({
       url: wsUrl,
       tokenId: meta.id,
+      zombieIdleMs: this.zombieIdleMs,
       onHandshakeFailed: (tokenId: string) => this.notifyTokenRefreshNeeded(tokenId, 'handshake_failed'),
       onReconnectExhausted: (tokenId: string) => void this.serverSideRefresh(tokenId),
     });
