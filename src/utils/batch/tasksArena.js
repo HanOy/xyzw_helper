@@ -51,7 +51,7 @@ export function createTasksArena(deps) {
       tokenStatus.value[tokenId] = "running";
       const token = tokens.value.find((t) => t.id === tokenId);
       // 加载该Token的独立配置，如果未找到则回退到currentSettings(虽然可能不准确，但作为最后的兜底)
-      const tokenSettings = loadSettings ? (loadSettings(tokenId) || currentSettings) : currentSettings;
+      const tokenSettings = (loadSettings ? await loadSettings(tokenId) : null) || currentSettings;
       
       try {
         addLog({
@@ -568,7 +568,7 @@ export function createTasksArena(deps) {
       tokenStatus.value[tokenId] = "running";
       
       // 加载该Token的独立配置，如果未找到则回退到currentSettings
-      const tokenSettings = loadSettings ? (loadSettings(tokenId) || currentSettings) : currentSettings;
+      const tokenSettings = (loadSettings ? await loadSettings(tokenId) : null) || currentSettings;
       const token = tokens.value.find((t) => t.id === tokenId);
 
       try {
