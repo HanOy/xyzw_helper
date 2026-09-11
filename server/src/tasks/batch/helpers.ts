@@ -33,7 +33,7 @@ export function pickArenaTargetId(targets: any): number | null {
 
 export function defaultDailySettings(): Record<string, unknown> {
   return {
-    arenaFormation: 1,
+    arenaFormation: 2,
     towerFormation: 1,
     bossFormation: 1,
     bossTimes: 2,

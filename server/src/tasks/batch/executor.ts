@@ -12,7 +12,7 @@ export interface BatchOperationsRequest {
 
 export function runBatchOperations(
   opts: BatchOperationsRequest,
-  onComplete?: (status: 'success' | 'failed', error?: string) => void,
+  onComplete?: (status: 'success' | 'partial' | 'failed', error?: string) => void,
 ): string {
   const batchId = createRun({
     type: 'batch-ops',
@@ -80,7 +80,7 @@ export function runBatchOperations(
       } else {
         taskLog({ runId: batchId, level: 'info', message: '批量操作完成' });
       }
-      onComplete?.(status === 'success' ? 'success' : 'failed', failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined);
+      onComplete?.(status, failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined);
     } catch (err) {
       const message = (err as Error).message;
       updateRun(batchId, { status: 'failed', finishedAt: new Date().toISOString(), error: message });

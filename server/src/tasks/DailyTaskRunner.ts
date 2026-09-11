@@ -51,7 +51,7 @@ export interface DailyTaskSettings {
 }
 
 const DEFAULT_SETTINGS: Required<DailyTaskSettings> = {
-  arenaFormation: 1,
+  arenaFormation: 2,
   bossFormation: 1,
   bossTimes: 2,
   claimBottle: true,

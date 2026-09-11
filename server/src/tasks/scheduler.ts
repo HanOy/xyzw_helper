@@ -49,8 +49,9 @@ function runScheduledStages(task: ScheduledTask): string {
   const rest = selected.filter((v) => v !== 'startBatch');
   const fullDaily = selected.length === 0 || selected.includes('startBatch');
 
+  type StageStatus = 'success' | 'partial' | 'failed';
   type Stage = (
-    cb: (status: 'success' | 'failed', error?: string) => void,
+    cb: (status: StageStatus, error?: string) => void,
   ) => string;
   const stages: Stage[] = [];
   if (fullDaily) {
@@ -74,24 +75,31 @@ function runScheduledStages(task: ScheduledTask): string {
   }
 
   let failures = 0;
+  let partials = 0;
   let lastError: string | undefined;
   let index = 0;
-  const next = (status: 'success' | 'failed', error?: string): void => {
-    if (status !== 'success') {
+  const next = (status: StageStatus, error?: string): void => {
+    if (status === 'failed') {
       failures += 1;
-      lastError = error;
+      lastError = error ?? lastError;
+    } else if (status === 'partial') {
+      partials += 1;
+      lastError = lastError ?? error;
     }
     index += 1;
     if (index < stages.length) {
       stages[index](next);
       return;
     }
-    if (failures === 0) {
-      markTaskRun(task.id, 'success');
-      log.info({ taskId: task.id }, '定时任务执行完成');
-    } else {
+    if (failures > 0) {
       markTaskRun(task.id, 'failed', lastError);
       log.error({ taskId: task.id, err: lastError }, '定时任务执行失败');
+    } else if (partials > 0) {
+      markTaskRun(task.id, 'partial', lastError);
+      log.warn({ taskId: task.id, err: lastError }, '定时任务部分账号失败');
+    } else {
+      markTaskRun(task.id, 'success');
+      log.info({ taskId: task.id }, '定时任务执行完成');
     }
   };
 

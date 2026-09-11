@@ -67,7 +67,7 @@ export interface BatchDailyRequest {
 
 export function runBatchDailyTasks(
   opts: BatchDailyRequest,
-  onComplete?: (status: 'success' | 'failed', error?: string) => void,
+  onComplete?: (status: 'success' | 'partial' | 'failed', error?: string) => void,
 ): string {
   const batchId = createRun({
     type: 'batch-daily',
