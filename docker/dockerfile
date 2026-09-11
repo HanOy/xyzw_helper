@@ -10,6 +10,12 @@
 #   - 环境变量 npm_config_registry : pnpm 11 起被忽略 (10 认), 升级后会静默失效
 #   - 项目 .npmrc 的 registry=     : install / prune 都读, 跨版本稳定   <-- 选它
 #
+# ⚠️ 追加时**必须前置换行符** (`printf '\nregistry=...'`)。
+#    踩过的坑: server-deps 会先 COPY 仓库里的 server/.npmrc, 而该文件末尾没有换行,
+#    直接 `printf 'registry=...' >>` 会粘成一行 `side-effects-cache=trueregistry=...`,
+#    registry 根本没设上 —— 但命令不报错, 表现为「web-deps 走了镜像(132s)、
+#    server-deps/server-builder 没走(prune 824s)」这种半生效的诡异现象。
+#
 # 两个 lockfile 都只含 integrity 哈希、无绝对 tarball URL, 换源不会改变拉到的内容,
 # 与 --frozen-lockfile 兼容。
 #
@@ -27,7 +33,7 @@ COPY package.json pnpm-lock.yaml* ./
 # 那一层要装 build-essential (约 200MB, 官方源直连要 1000s+)。
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
-    if [ -n "$NPM_REGISTRY" ]; then printf 'registry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
+    if [ -n "$NPM_REGISTRY" ]; then printf '\nregistry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
     pnpm install --frozen-lockfile
 
 # --- Stage 2: build frontend (only source files, no node_modules) ---
@@ -52,12 +58,12 @@ COPY server/.npmrc ./.npmrc
 COPY server/pnpm-workspace.yaml ./pnpm-workspace.yaml
 ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
-    if [ -n "$NPM_REGISTRY" ]; then printf 'registry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
+    if [ -n "$NPM_REGISTRY" ]; then printf '\nregistry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
     pnpm install --frozen-lockfile
 
 # --- Stage 4: build server (only source files) ---
 # 这里不用再传 registry: server-deps 写下的 /app/server/.npmrc 随文件系统继承下来,
-# `pnpm prune --prod` 会读它 (已实测)。
+# `pnpm prune --prod` 会读它 —— 前提是上面那行 registry 真的写对了 (见文件头 ⚠️)。
 FROM server-deps AS server-builder
 WORKDIR /app/server
 COPY server/tsconfig.json ./tsconfig.json
