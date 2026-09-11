@@ -15,11 +15,6 @@ export interface GameSocketOptions {
   url: string;
   tokenId?: string;
   heartbeatMs?: number;
-  /**
-   * 僵尸连接判定阈值 (ms): 连续无入站帧超过该时长即认为 TCP 已半死, 主动断开重连。
-   * 仅在**观测到过**心跳响应 (_sys/ack) 后才生效; 传 0 显式关闭。默认 heartbeatMs * 4
-   */
-  zombieIdleMs?: number;
   sendQueueIntervalMs?: number;
   reconnectDelayMs?: number;
   reconnectStableMs?: number;
@@ -76,7 +71,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly onHandshakeFailed: ((tokenId: string) => void) | undefined;
   private readonly onReconnectExhausted: ((tokenId: string) => void) | undefined;
   private readonly heartbeatMs: number;
-  private readonly zombieIdleMs: number;
   private readonly sendQueueIntervalMs: number;
   private readonly reconnectDelayMs: number;
   private readonly reconnectStableMs: number;
@@ -85,14 +79,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   // 标记不应推给前端的 seq (heart_beat 等纯保活命令), 响应收到后只清 pending/状态, 不 emit bus
   private noBusSeqs = new Set<number>();
   private everOpened = false;
-  /** 最近一次收到入站帧的时间 (open 时置为当下); 0 = 尚未收到 */
-  private lastInboundAt = 0;
-  /**
-   * 当前这条连接是否观测到过心跳响应 (_sys/ack)。
-   * 每条连接都要自己证明"服务端会回 ack"才启用僵尸判定 —— 若服务端不回 ack,
-   * 判定永不触发, 退化为原来的"只发不校验"保活, 不会误杀/陷入断开重连循环。
-   */
-  private heartbeatAckSeen = false;
 
   private ws: WebSocket | null = null;
   private status: GameSocketStatus = 'disconnected';
@@ -119,8 +105,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.onHandshakeFailed = options.onHandshakeFailed;
     this.onReconnectExhausted = options.onReconnectExhausted;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
-    // 僵尸连接判定阈值: 默认 4 个心跳周期 (4 × 5s = 20s); 显式传 0 可关闭该检测
-    this.zombieIdleMs = options.zombieIdleMs ?? this.heartbeatMs * 4;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
     this.reconnectStableMs = options.reconnectStableMs ?? 30000;
@@ -165,10 +149,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
       const onOpen = () => {
         this.everOpened = true;
-        // 刚完成握手, 底层连接确定存活; 以此为入站静默计时起点
-        this.lastInboundAt = Date.now();
-        // 新连接需重新证明服务端会回心跳 ack, 才允许启用僵尸判定
-        this.heartbeatAckSeen = false;
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
@@ -186,7 +166,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       const onMessage = (data: WebSocket.RawData, isBinary: boolean) => {
         try {
           if (isBinary) {
-            this.lastInboundAt = Date.now();
             const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as ArrayBuffer);
             const parsed = g_utils.parse(buf, 'auto');
             const raw = (parsed as { _raw?: Record<string, unknown> })._raw ?? {};
@@ -205,8 +184,6 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
             }
             // 纯保活命令的响应 (heart_beat ack _sys/ack) 不推给上层 (ConnectionPool / SSE)
             if (msg.cmd === HEARTBEAT_CMD) {
-              // 收到过心跳响应 → 说明服务端确实会回 ack, 僵尸检测可以启用了
-              this.heartbeatAckSeen = true;
               this.resolvePromises(msg);
               return;
             }
@@ -308,15 +285,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     setTimeout(() => this.sendHeartbeat(), 3000);
     this.heartbeatTimer = setInterval(() => {
-      if (!this.isConnected()) return;
-      // 僵尸连接检测: TCP 半开时本地 readyState 仍是 OPEN, 心跳发得出去却收不到任何响应。
-      // 连续多个心跳周期无入站帧 → 判定已死, 主动断开触发重连;
-      // 否则要等到下次发命令时 ws.send 才暴露问题 (任务已失败)。
-      if (this.isZombie()) {
-        this.handleZombie();
-        return;
-      }
-      this.sendHeartbeat();
+      if (this.isConnected()) this.sendHeartbeat();
     }, this.heartbeatMs);
   }
 
@@ -353,48 +322,28 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     }
   }
 
+  /**
+   * 心跳保活 —— **跟随原版 (浏览器端 wsAgent) 的协议语义**:
+   * 发送**上行 `_sys/ack` 确认包** (把客户端已收到的最新 seq 回执给服务器), 纯单向,
+   * 服务器**不会**回任何帧; 空闲连接上长时间完全没有入站数据是**正常**的。
+   *
+   * ⚠️ 踩过的坑 (2026-09-11): 曾实现为发 `heart_beat` 命令并等服务器回 `_sys/ack`,
+   * 再据此做"无响应即僵尸"检测 —— 但游戏服对空闲连接根本不逐包回复,
+   * 导致健康连接每 ~25s 被误杀重连一次, 整夜震荡, 定时任务全灭。
+   * TCP 半开的防护交给连接层重试 (batch/helpers.isTransientConnectionError), 不在这层做。
+   */
   private sendHeartbeat(): void {
-    // 心跳响应不推给前端 (纯保活), 但响应仍会进入 resolvePromises 清掉 pending/状态
-    this.enqueue('heart_beat', {}, { respKey: HEARTBEAT_CMD, seq: 0, noBus: true });
-  }
-
-  /**
-   * 是否处于"僵尸连接"状态 (TCP 半开: 本地看着正常, 实际已收不到任何数据)。
-   *
-   * 仅在观测到过心跳响应 (heartbeatAckSeen) 后才启用 —— 若游戏服根本不回 ack,
-   * 该判定永不触发, 退化为原来的"只发不校验"保活, 不会造成误杀/连接震荡。
-   */
-  private isZombie(): boolean {
-    if (this.zombieIdleMs <= 0) return false;
-    if (!this.heartbeatAckSeen) return false;
-    if (this.lastInboundAt === 0) return false;
-    return Date.now() - this.lastInboundAt > this.zombieIdleMs;
-  }
-
-  /**
-   * 判定连接已失效 → 立即销毁底层 socket, 交给既有重连流程处理
-   * (terminate → close 事件 → onClose → cleanup + scheduleReconnect)。
-   *
-   * 用 terminate 而非 close: 半开状态下 close 要等对端回 FIN, ws 默认 30s 才超时。
-   * terminate 同步把 readyState 置为 CLOSING 并 destroy 底层 socket, 事件立即触发。
-   */
-  private handleZombie(): void {
-    const idleMs = Date.now() - this.lastInboundAt;
-    wsLog.warn(
-      { tokenId: this.tokenId, idleMs, thresholdMs: this.zombieIdleMs },
-      '心跳无响应, 判定连接已失效, 主动断开重连',
-    );
-    const ws = this.ws;
-    if (!ws) return;
+    const payload = {
+      cmd: HEARTBEAT_CMD,
+      ack: this.ack,
+      seq: 0, // 心跳包 seq 恒为 0 (与原版一致)
+      time: Date.now(),
+      body: bon.encode({}),
+    };
     try {
-      ws.terminate();
-    } catch (err) {
-      wsLog.warn({ err: (err as Error).message }, 'terminate 失败, 退回 close');
-      try {
-        ws.close();
-      } catch {
-        // ignore
-      }
+      this.ws?.send(Buffer.from(bonEncode(payload, g_utils.getEnc('x'))));
+    } catch {
+      // 断连时发送失败静默即可, onClose 流程会接管重连
     }
   }
 

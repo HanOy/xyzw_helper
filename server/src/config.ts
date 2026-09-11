@@ -35,8 +35,6 @@ export interface AppConfig {
   defaultGameWsUrl: string;
   maxConcurrentConnections: number;
   connectionIntervalMs: number;
-  /** WS 僵尸连接判定阈值(ms): 连续无入站帧超过该时长即主动断开重连; 0 = 关闭该检测 */
-  wsZombieIdleMs: number;
   jwtExpiresIn: string;
   isDev: boolean;
   staticDir: string | null;
@@ -66,8 +64,6 @@ export function loadConfig(): AppConfig {
       process.env.XYZW_WS_URL ?? 'wss://xxz-xyzw.hortorgames.com/agent',
     maxConcurrentConnections: Number(process.env.XYZW_MAX_CONN ?? 10),
     connectionIntervalMs: Number(process.env.XYZW_CONN_INTERVAL_MS ?? 500),
-    // 默认 20s = 4 个心跳周期 (心跳 5s)。调大到 60000+ 更保守, 设 0 关闭。
-    wsZombieIdleMs: Number(process.env.XYZW_WS_ZOMBIE_IDLE_MS ?? 20000),
     jwtExpiresIn: process.env.XYZW_JWT_TTL ?? '7d',
     isDev: process.env.NODE_ENV !== 'production',
     staticDir,

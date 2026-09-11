@@ -1,11 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket as WsWebSocket } from 'ws';
 import { GameSocket } from '../src/game/GameSocket.js';
+import { g_utils } from '../src/game/bonProtocol.js';
 
 /**
- * 覆盖 GameSocket 两处连接层修复 (该文件带 @ts-nocheck, 没有静态类型兜底):
- *  1. 僵尸连接检测: 半死连接主动断开重连, 但服务端不回流时绝不误判
- *  2. send() 快速失败: 断连时立即抛错, 不再静默入队等到超时
+ * 覆盖 GameSocket 连接层行为 (该文件带 @ts-nocheck, 没有静态类型兜底):
+ *  1. send() 快速失败: 断连时立即抛错, 不再静默入队等到超时
+ *  2. 心跳保活: 跟随原版 (浏览器端 wsAgent) 语义 —— 发**上行 `_sys/ack` 确认包**,
+ *     不期待响应; 空闲连接长时间无入站帧是**正常**的, 绝不能被当成死连接误杀
+ *     (2026-09-11 的回归: 曾实现"发 heart_beat 等响应, 20s 无入站即杀",
+ *      导致健康连接整夜每 ~25s 被断开重连一次, 定时任务全灭)
  */
 
 const sockets: GameSocket[] = [];
@@ -83,63 +87,39 @@ describe('GameSocket.send 守卫 (断连快速失败)', () => {
   });
 });
 
-describe('GameSocket 僵尸连接检测', () => {
-  it('服务端从不回帧 → 不判定僵尸 (不会误杀 / 连接震荡)', async () => {
+describe('GameSocket 心跳保活 (上行 _sys/ack, 不期待响应)', () => {
+  it('服务器完全不回帧 → 空闲连接绝不误杀, 持续保持 connected', async () => {
     const { url } = await startServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = track(new GameSocket({ url, heartbeatMs: 30, zombieIdleMs: 60, reconnectDelayMs: 10 })) as any;
-    const statuses: string[] = [];
-    s.on('status', (st: string) => statuses.push(st));
-
-    await s.connect();
-    expect(s.isConnected()).toBe(true);
-    // 未收到过 _sys/ack → 检测保持关闭
-    expect(s.heartbeatAckSeen).toBe(false);
-
-    await new Promise((r) => setTimeout(r, 400)); // 远超若干阈值窗口
-    expect(s.isZombie()).toBe(false);
-    expect(s.isConnected()).toBe(true);
-    expect(statuses.filter((x) => x === 'disconnected')).toHaveLength(0);
-  });
-
-  it('观测到过 ack 后转为静默 → 主动断开并自动重连', async () => {
-    const { url } = await startServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = track(new GameSocket({ url, heartbeatMs: 30, zombieIdleMs: 60, reconnectDelayMs: 10 })) as any;
+    const s = track(new GameSocket({ url, heartbeatMs: 30 })) as any;
     const statuses: string[] = [];
     s.on('status', (st: string) => statuses.push(st));
 
     await s.connect();
     expect(s.isConnected()).toBe(true);
 
-    // 制造"曾收到过心跳响应, 之后连接半死"的状态
-    s.heartbeatAckSeen = true;
-    s.lastInboundAt = Date.now() - 10_000;
-    expect(s.isZombie()).toBe(true);
-
-    // 心跳 tick 应触发 terminate → close → onClose → 自动重连
-    expect(await waitFor(() => statuses.includes('disconnected'))).toBe(true);
-    expect(await waitFor(() => s.isConnected() === true)).toBe(true);
-    expect(s.reconnectAttempts).toBeGreaterThan(0);
-    // 新连接必须重新证明服务端会回 ack —— 避免拿旧连接的信息误判新连接
-    expect(s.heartbeatAckSeen).toBe(false);
+    // 远超多个心跳周期; 期间服务器一帧不发 (真实游戏服对空闲连接就是这样)
+    await new Promise((r) => setTimeout(r, 600));
+    expect(s.isConnected()).toBe(true);
+    // connect 之后的 status 事件里不允许出现 disconnected / error / reconnecting
+    expect(statuses.filter((x) => x !== 'connected' && x !== 'connecting')).toHaveLength(0);
   });
 
-  it('zombieIdleMs=0 → 关闭检测', () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = track(new GameSocket({ url: 'ws://127.0.0.1:1', zombieIdleMs: 0 })) as any;
-    s.heartbeatAckSeen = true;
-    s.lastInboundAt = Date.now() - 10_000_000;
-    expect(s.isZombie()).toBe(false);
-  });
-
-  it('阈值内静默不判定; 刚 open 视为新鲜', async () => {
-    const { url } = await startServer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const s = track(new GameSocket({ url, heartbeatMs: 30, zombieIdleMs: 5000 })) as any;
+  it('心跳包内容: cmd=_sys/ack 且 seq=0 (上行确认包, 而非 heart_beat 请求)', async () => {
+    const frames: Buffer[] = [];
+    const { url } = await startServer((ws) => {
+      ws.on('message', (d) => frames.push(Buffer.from(d as ArrayBuffer)));
+    });
+    const s = track(new GameSocket({ url, heartbeatMs: 30 })) as any;
     await s.connect();
-    s.heartbeatAckSeen = true;
-    expect(s.lastInboundAt).toBeGreaterThan(0); // onOpen 已置位
-    expect(s.isZombie()).toBe(false);
+    expect(await waitFor(() => frames.length > 0)).toBe(true);
+
+    const parsed = g_utils.parse(frames[0], 'auto') as {
+      cmd?: unknown;
+      _raw?: { cmd?: unknown; seq?: unknown };
+    };
+    const cmd = String(parsed.cmd ?? parsed._raw?.cmd ?? '');
+    const seq = typeof parsed._raw?.seq === 'number' ? parsed._raw.seq : undefined;
+    expect(cmd).toBe('_sys/ack');
+    expect(seq).toBe(0);
   });
 });
