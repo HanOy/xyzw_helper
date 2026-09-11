@@ -1,10 +1,33 @@
+# ============================================================
+# 构建期 npm 源: 默认走国内镜像
+#
+# 背景: 实测 NAS 直连 registry.npmjs.org 只有 17~20 KiB/s。而 `pnpm prune --prod`
+# 也会重新下载 tarball (已实测确认, 不是纯删除), 所以慢的不只是 install ——
+# 那一步实测 384s。
+#
+# 为什么写进项目 .npmrc, 而不是别的写法 (三种都在 pnpm 10.19.0 上实测过):
+#   - 命令行 --registry=...        : `pnpm prune` 报 "Unknown option: 'registry'" 直接失败
+#   - 环境变量 npm_config_registry : pnpm 11 起被忽略 (10 认), 升级后会静默失效
+#   - 项目 .npmrc 的 registry=     : install / prune 都读, 跨版本稳定   <-- 选它
+#
+# 两个 lockfile 都只含 integrity 哈希、无绝对 tarball URL, 换源不会改变拉到的内容,
+# 与 --frozen-lockfile 兼容。
+#
+# 关闭换源(回到官方源): docker compose build --build-arg NPM_REGISTRY=
+# 改默认值请同时改下面 web-deps / server-deps 两处。
+# ============================================================
+
 # --- Stage 1: install frontend deps ---
 FROM node:20-bookworm-slim AS web-deps
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json pnpm-lock.yaml* ./
+# ARG 刻意放在 apt 层之后: 任何插在 apt 之前的新指令都会让它缓存失效,
+# 那一层要装 build-essential (约 200MB, 官方源直连要 1000s+)。
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    if [ -n "$NPM_REGISTRY" ]; then printf 'registry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
     pnpm install --frozen-lockfile
 
 # --- Stage 2: build frontend (only source files, no node_modules) ---
@@ -27,10 +50,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY server/package.json server/pnpm-lock.yaml* ./
 COPY server/.npmrc ./.npmrc
 COPY server/pnpm-workspace.yaml ./pnpm-workspace.yaml
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 RUN corepack enable && corepack prepare pnpm@10.19.0 --activate && \
+    if [ -n "$NPM_REGISTRY" ]; then printf 'registry=%s\n' "$NPM_REGISTRY" >> .npmrc; fi && \
     pnpm install --frozen-lockfile
 
 # --- Stage 4: build server (only source files) ---
+# 这里不用再传 registry: server-deps 写下的 /app/server/.npmrc 随文件系统继承下来,
+# `pnpm prune --prod` 会读它 (已实测)。
 FROM server-deps AS server-builder
 WORKDIR /app/server
 COPY server/tsconfig.json ./tsconfig.json
