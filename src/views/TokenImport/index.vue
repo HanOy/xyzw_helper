@@ -643,6 +643,7 @@ import singleBinTokenForm from "./singlebin.vue";
 import WxQrcodeForm from "./wxqrcode.vue";
 
 import { useTokenStore, selectedTokenId } from "@/stores/tokenStore";
+import { api } from "@/api";
 import {
   Add,
   Copy,
