@@ -1,3 +1,5 @@
+import { connectionPool } from '../../game/poolSingleton.js';
+
 export const FISH_TARGET = 320;
 export const ARENA_TARGET = 240;
 
@@ -77,4 +79,31 @@ export function defaultBatchSettings(): Record<string, unknown> {
     smartDepartureMatchAll: false,
     dreamPurchaseList: [],
   };
+}
+
+/** 单个 token 的最大尝试次数: 首次 + 一次连接层重试 */
+export const TOKEN_MAX_ATTEMPTS = 2;
+
+/**
+ * 连接层瞬时错误: 连接断开/尚未就绪/建连超时。
+ * 这类错误与业务无关, 等重连恢复后重试即可成功, 不应直接判定账号失败。
+ */
+const TRANSIENT_CONN_RE = /connection closed|connection timeout|token 未连接|WebSocket 未连接/i;
+
+export function isTransientConnectionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return TRANSIENT_CONN_RE.test(msg);
+}
+
+/**
+ * 等待自动重连恢复 (轮询 readyState)。
+ * 超时不抛错 — 交由调用方下一轮的 ensureConnection 兜底, 保持流程简单。
+ */
+export async function waitForReconnect(tokenId: string, timeoutMs = 15000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (connectionPool.get(tokenId)?.socket.isConnected()) return true;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return false;
 }

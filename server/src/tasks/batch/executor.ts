@@ -3,6 +3,7 @@ import { tokenService } from '../../token/TokenService.js';
 import { createRun, taskLog, taskProgress, updateRun, isCancelled, enqueueBatchToken } from '../runState.js';
 import { BatchContext } from './context.js';
 import { dispatchSelectedTasks } from './registry.js';
+import { isTransientConnectionError, waitForReconnect, TOKEN_MAX_ATTEMPTS } from './helpers.js';
 
 export interface BatchOperationsRequest {
   tokenIds: string[];
@@ -38,26 +39,46 @@ export function runBatchOperations(
     const tokenName = token?.name ?? tokenId;
     await enqueueBatchToken(tokenId, async () => {
       taskLog({ runId: batchId, tokenId, level: 'info', message: `开始处理 ${tokenName}` });
-      try {
-        const meta = tokenService.toConnectionMeta(tokenId);
-        if (!meta) throw new Error('token 不存在');
-        await connectionPool.ensureConnection(meta);
-        const ctx = new BatchContext({
-          runId: batchId,
-          tokenId,
-          batchSettings: opts.settings,
-          shouldStop: () => isCancelled(batchId),
-        });
-        await ctx.getRoleInfo();
-        await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
-        taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
-      } catch (err) {
+      let lastError: Error | null = null;
+      for (let attempt = 1; attempt <= TOKEN_MAX_ATTEMPTS; attempt++) {
+        try {
+          const meta = tokenService.toConnectionMeta(tokenId);
+          if (!meta) throw new Error('token 不存在');
+          await connectionPool.ensureConnection(meta);
+          const ctx = new BatchContext({
+            runId: batchId,
+            tokenId,
+            batchSettings: opts.settings,
+            shouldStop: () => isCancelled(batchId),
+          });
+          await ctx.getRoleInfo();
+          await dispatchSelectedTasks(ctx, opts.selectedTasks ?? []);
+          lastError = null;
+          taskLog({ runId: batchId, tokenId, level: 'success', message: `${tokenName} 批量任务完成` });
+          break;
+        } catch (err) {
+          lastError = err as Error;
+          // 连接层瞬时错误 (僵尸连接/掉线) → 等自动重连恢复后重试, 不直接判失败
+          if (attempt < TOKEN_MAX_ATTEMPTS && isTransientConnectionError(err)) {
+            taskLog({
+              runId: batchId,
+              tokenId,
+              level: 'warn',
+              message: `${tokenName} 连接已断开 (${lastError.message})，等待重连后重试`,
+            });
+            await waitForReconnect(tokenId);
+            continue;
+          }
+          break;
+        }
+      }
+      if (lastError) {
         failedCount += 1;
         taskLog({
           runId: batchId,
           tokenId,
           level: 'error',
-          message: `${tokenName} 失败: ${(err as Error).message}`,
+          message: `${tokenName} 失败: ${lastError.message}`,
         });
       }
     });
