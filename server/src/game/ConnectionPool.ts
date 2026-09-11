@@ -73,6 +73,7 @@ export class ConnectionPool {
       url: wsUrl,
       tokenId: meta.id,
       onHandshakeFailed: (tokenId: string) => this.notifyTokenRefreshNeeded(tokenId, 'handshake_failed'),
+      onReconnectExhausted: (tokenId: string) => void this.serverSideRefresh(tokenId),
     });
     const entry: PoolEntry = {
       socket,
@@ -193,6 +194,41 @@ export class ConnectionPool {
       tokenId,
       reason: t && t.importMethod !== 'url' ? `${reason}:non-url` : reason,
     });
+  }
+
+  /**
+   * 服务端自动续期 + 重连 (不依赖前端).
+   * 在 WS reconnect 连续失败 5 次后由 GameSocket 触发.
+   * 流程: 读 token 信息 → 选 refresh 路径(URL / raw_bin) → 更新加密凭据 → 用新 p 重建连接.
+   */
+  async serverSideRefresh(tokenId: string): Promise<void> {
+    const meta = tokenService.toConnectionMeta(tokenId);
+    if (!meta) {
+      wsLog.warn({ tokenId }, 'serverSideRefresh: token 不存在');
+      return;
+    }
+    const publicRow = tokenService.get(tokenId);
+    const importMethod = publicRow?.importMethod;
+    try {
+      if (importMethod === 'url') {
+        await tokenService.refreshByUrl(tokenId);
+      } else if (importMethod === 'wxQrcode' || importMethod === 'bin') {
+        await tokenService.refreshFromBin(tokenId);
+      } else {
+        wsLog.warn({ tokenId, importMethod }, 'serverSideRefresh: 此类型无法自动续期, 需用户手动重导');
+        return;
+      }
+      wsLog.info({ tokenId, importMethod }, 'serverSideRefresh 成功, 准备重连');
+      // 旧 socket 已 close (onClose 触发 scheduleReconnect), 直接用新 p 建连
+      await this.disconnect(tokenId);
+      await this.connect(meta);
+      wsLog.info({ tokenId }, 'serverSideRefresh 重连成功');
+    } catch (err) {
+      wsLog.warn(
+        { tokenId, err: (err as Error).message },
+        'serverSideRefresh 失败, 维持原状态',
+      );
+    }
   }
 
   private persistIfRelevant(tokenId: string, msg: GameMessage): void {

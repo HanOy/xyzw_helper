@@ -20,6 +20,8 @@ export interface GameSocketOptions {
   reconnectStableMs?: number;
   maxReconnectDelayMs?: number;
   onHandshakeFailed?: (tokenId: string) => void;
+  /** 重连连续失败达到阈值时触发 (供后端自动续期 + 重连使用) */
+  onReconnectExhausted?: (tokenId: string) => void;
 }
 
 interface QueueTask {
@@ -67,6 +69,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly url: string;
   private readonly tokenId: string | undefined;
   private readonly onHandshakeFailed: ((tokenId: string) => void) | undefined;
+  private readonly onReconnectExhausted: ((tokenId: string) => void) | undefined;
   private readonly heartbeatMs: number;
   private readonly sendQueueIntervalMs: number;
   private readonly reconnectDelayMs: number;
@@ -85,6 +88,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDeadline: number | null = null;
   private intentionalClose = false;
+  // 重连失败达阈值后是否已触发过 onReconnectExhausted, 避免同一会话里重复触发续期
+  private reconnectExhaustedNotified = false;
 
   private sendQueue: QueueTask[] = [];
   private sendTimer: NodeJS.Timeout | null = null;
@@ -98,6 +103,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.url = options.url;
     this.tokenId = options.tokenId;
     this.onHandshakeFailed = options.onHandshakeFailed;
+    this.onReconnectExhausted = options.onReconnectExhausted;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
     this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
@@ -151,6 +157,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         this.stableTimer = setTimeout(() => {
           this.reconnectAttempts = 0;
           this.reconnectDeadline = null;
+          this.reconnectExhaustedNotified = false;
           wsLog.info('连接已稳定，重置重连计数');
         }, this.reconnectStableMs);
         resolve();
@@ -231,6 +238,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   disconnect(): void {
     this.intentionalClose = true;
     this.reconnectDeadline = null;
+    this.reconnectExhaustedNotified = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -427,6 +435,25 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       this.setStatus('error', '重连超时：5 分钟内无法恢复连接，请检查网络/鉴权配置或手动重连');
       this.reconnectDeadline = null;
       return;
+    }
+
+    // 连续重连失败达阈值 → 通知上层(后端自动续期 + 重连)
+    if (
+      !this.reconnectExhaustedNotified &&
+      this.reconnectAttempts >= 5 &&
+      this.tokenId &&
+      this.onReconnectExhausted
+    ) {
+      this.reconnectExhaustedNotified = true;
+      wsLog.warn(
+        { tokenId: this.tokenId, attempts: this.reconnectAttempts },
+        'reconnect 失败达阈值，触发 token 自动续期',
+      );
+      try {
+        this.onReconnectExhausted(this.tokenId);
+      } catch (err) {
+        wsLog.warn({ err: (err as Error).message }, 'onReconnectExhausted callback threw');
+      }
     }
 
     this.reconnectAttempts++;
