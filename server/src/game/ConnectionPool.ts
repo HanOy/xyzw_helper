@@ -6,6 +6,7 @@ import { bus, type BusEvent } from '../events/bus.js';
 import { saveRoleCache } from './roleCache.js';
 import { logger } from '../logger.js';
 import { extractLastLoginTimestamp, generateRandomSeed } from './randomSeed.js';
+import { tokenService } from '../token/TokenService.js';
 
 const log = logger.child({ mod: 'connection-pool' });
 
@@ -32,6 +33,8 @@ export interface PoolEntry {
 export class ConnectionPool {
   private entries = new Map<string, PoolEntry>();
   private connectingSlots = 0;
+  /** 正在自动续期的 token, 防止同一 token 并发/循环触发续期 */
+  private refreshing = new Set<string>();
   private readonly maxConcurrent: number;
   private readonly intervalMs: number;
   private readonly defaultGameWsUrl: string;
@@ -199,35 +202,45 @@ export class ConnectionPool {
   /**
    * 服务端自动续期 + 重连 (不依赖前端).
    * 在 WS reconnect 连续失败 5 次后由 GameSocket 触发.
-   * 流程: 读 token 信息 → 选 refresh 路径(URL / raw_bin) → 更新加密凭据 → 用新 p 重建连接.
+   * 流程: 读 importMethod → 选 refresh 路径(URL / raw_bin) → 更新加密凭据
+   *       → **重新读取 meta** → 用新 p 重建连接.
    */
   async serverSideRefresh(tokenId: string): Promise<void> {
-    const meta = tokenService.toConnectionMeta(tokenId);
-    if (!meta) {
-      wsLog.warn({ tokenId }, 'serverSideRefresh: token 不存在');
+    if (this.refreshing.has(tokenId)) {
+      log.warn({ tokenId }, 'serverSideRefresh: 已有续期在进行, 跳过');
       return;
     }
-    const publicRow = tokenService.get(tokenId);
-    const importMethod = publicRow?.importMethod;
+    this.refreshing.add(tokenId);
     try {
+      const publicRow = tokenService.get(tokenId);
+      if (!publicRow) {
+        log.warn({ tokenId }, 'serverSideRefresh: token 不存在');
+        return;
+      }
+      const importMethod = publicRow.importMethod;
       if (importMethod === 'url') {
         await tokenService.refreshByUrl(tokenId);
       } else if (importMethod === 'wxQrcode' || importMethod === 'bin') {
         await tokenService.refreshFromBin(tokenId);
       } else {
-        wsLog.warn({ tokenId, importMethod }, 'serverSideRefresh: 此类型无法自动续期, 需用户手动重导');
+        log.warn({ tokenId, importMethod }, 'serverSideRefresh: 此类型无法自动续期, 需用户手动重导');
         return;
       }
-      wsLog.info({ tokenId, importMethod }, 'serverSideRefresh 成功, 准备重连');
-      // 旧 socket 已 close (onClose 触发 scheduleReconnect), 直接用新 p 建连
+      // 必须在续期之后再读 meta, 否则拿到的是刷新前的旧凭据 (旧 p 仍会握手失败)
+      const freshMeta = tokenService.toConnectionMeta(tokenId);
+      if (!freshMeta) {
+        log.warn({ tokenId }, 'serverSideRefresh: 续期后读不到 meta, 放弃重连');
+        return;
+      }
+      log.info({ tokenId, importMethod }, 'serverSideRefresh 成功, 准备用新凭据重连');
+      // 旧 socket 已 close (onClose 触发 scheduleReconnect); disconnect 会清掉旧 entry 与重连排程
       await this.disconnect(tokenId);
-      await this.connect(meta);
-      wsLog.info({ tokenId }, 'serverSideRefresh 重连成功');
+      await this.connect(freshMeta);
+      log.info({ tokenId }, 'serverSideRefresh 重连成功');
     } catch (err) {
-      wsLog.warn(
-        { tokenId, err: (err as Error).message },
-        'serverSideRefresh 失败, 维持原状态',
-      );
+      log.warn({ tokenId, err: (err as Error).message }, 'serverSideRefresh 失败, 维持原状态');
+    } finally {
+      this.refreshing.delete(tokenId);
     }
   }
 

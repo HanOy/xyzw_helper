@@ -213,6 +213,18 @@ async function bootstrap() {
   process.on('SIGTERM', shutdown);
 }
 
+// 进程级兜底: 任何漏网的 Promise 拒绝 / 未捕获异常只记日志, 不把整个服务带走.
+// 背景: ConnectionPool 里曾有一处未定义标识符, 经 "async 回调 + void 丢弃" 变成
+// 未处理拒绝, Node 默认直接退出进程, 连累正在跑的定时任务中断.
+// 本服务是常驻型辅助工具, 可用性优先于严格性, 因此这里选择"记录后继续运行".
+process.on('unhandledRejection', (reason) => {
+  const err = reason instanceof Error ? reason : new Error(String(reason));
+  logger.error({ err: err.message, stack: err.stack }, '未处理的 Promise 拒绝 (已拦截, 进程继续)');
+});
+process.on('uncaughtException', (err) => {
+  logger.error({ err: err.message, stack: err.stack }, '未捕获异常 (已拦截, 进程继续)');
+});
+
 bootstrap().catch((err) => {
   console.error('[xyzw] fatal:', err.message);
   if (err.stack) console.error(err.stack);
