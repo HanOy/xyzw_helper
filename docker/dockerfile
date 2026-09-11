@@ -84,12 +84,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     corepack enable && corepack prepare pnpm@10.19.0 --activate
 
 COPY --from=web-builder /app/dist /app/web
-COPY --from=server-builder /app/server/dist /app/server/dist
-COPY --from=server-builder /app/server/package.json /app/server/package.json
-COPY --from=server-builder /app/server/node_modules /app/server/node_modules
+# --chown 在 COPY 时直接落成 node 属主: 避免事后 `chown -R /app` 把整个
+# node_modules (几万个文件) 逐个 copy-up 进新层 —— 那样这一步要跑几分钟,
+# 且镜像里 node_modules 会被完整复制两份。
+COPY --from=server-builder --chown=node:node /app/server/dist /app/server/dist
+COPY --from=server-builder --chown=node:node /app/server/package.json /app/server/package.json
+COPY --from=server-builder --chown=node:node /app/server/node_modules /app/server/node_modules
 
 WORKDIR /app/server
-RUN mkdir -p /app/server/data && chown -R node:node /app && chmod -R a+rX /app
+# node 只需要写 SQLite 数据目录; 其余文件 root 属主 + 默认 644/755 权限,
+# node 用户本就能读, 无需递归 chmod。只 chown 这一个目录, 毫秒级完成。
+RUN mkdir -p /app/server/data && chown node:node /app/server/data
 USER node
 
 EXPOSE 8787
