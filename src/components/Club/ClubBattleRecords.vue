@@ -464,7 +464,10 @@ const exportDom = ref(null);
 const message = useMessage()
 const tokenStore = useTokenStore()
 const info = computed(() => tokenStore.gameData?.legionInfo || null);
-const club = computed(() => info.value?.info || null);
+// 必须兜底为对象: 若返回 null, 模板里 club.name 会在渲染期抛 TypeError,
+// 导致战绩数据虽已加载 (成功 toast 已弹) 但整个组件渲染中断、页面空白
+// (与 ClubMonthBattleRecords.vue 的写法对齐)
+const club = computed(() => info.value?.info || { name: '俱乐部' });
 
 const loading = ref(false)
 const battleRecords = ref(null)

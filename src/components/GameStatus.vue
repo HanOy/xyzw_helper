@@ -27,7 +27,6 @@
       <n-tab-pane v-if="ENABLE_TOOLS_TAB" name="tools" tab="工具" />
       <n-tab-pane name="saltFieldGroup" tab="盐场" />
       <n-tab-pane name="peachGroup" tab="蟠桃园" />
-      <n-tab-pane name="rankGroup" tab="排行榜" />
       <n-tab-pane name="fightPvp" tab="切磋" />
     </n-tabs>
 
@@ -241,49 +240,6 @@
       </div>
     </div>
 
-    <!-- 排行榜分组 -->
-    <div class="rank-group" v-if="activeSection === 'rankGroup'">
-      <div
-        class="sub-nav"
-        style="
-          padding: 8px;
-          background: var(--n-color);
-          display: flex;
-          justify-content: center;
-        "
-      >
-        <n-tabs type="segment" animated v-model:value="rankSubTab" size="small">
-          <n-tab-pane name="serverrank" tab="区服榜" />
-          <n-tab-pane name="toprank" tab="巅峰榜" />
-          <n-tab-pane name="topclubrank" tab="俱乐部榜" />
-          <n-tab-pane name="goldclubrank" tab="黄金积分榜" />
-          <n-tab-pane name="greatRouteRank" tab="伟大航路积分榜" />
-        </n-tabs>
-      </div>
-
-      <div class="warrank-full-container" v-if="rankSubTab === 'serverrank'">
-        <ServerRankList />
-      </div>
-
-      <div class="warrank-full-container" v-if="rankSubTab === 'toprank'">
-        <TopRankList />
-      </div>
-
-      <div class="warrank-full-container" v-if="rankSubTab === 'topclubrank'">
-        <TopClubList />
-      </div>
-
-      <div class="warrank-full-container" v-if="rankSubTab === 'goldclubrank'">
-        <GoldClubList />
-      </div>
-
-      <div
-        class="warrank-full-container"
-        v-if="rankSubTab === 'greatRouteRank'"
-      >
-        <GreatRouteRankList />
-      </div>
-    </div>
     <!-- 切磋（提取组件） -->
     <FightPvp v-if="activeSection === 'fightPvp'" />
   </div>
@@ -310,10 +266,6 @@ import ClubWarrank from "./Club/ClubWarrank.vue";
 import ClubMonthBattleRecords from "./Club/ClubMonthBattleRecords.vue";
 import ClubBattleRecords from "./Club/ClubBattleRecords.vue";
 import PeachBattleRecords from "./Club/PeachBattleRecords.vue";
-import TopRankList from "./cards/TopRankListPageCard.vue";
-import TopClubList from "./cards/TopClubListPageCard.vue";
-import GreatRouteRankList from "./Club/GreatRouteRankListPageCard.vue";
-import GoldClubList from "./cards/GoldRankListPageCard.vue";
 import FightPvp from "./cards/FightPvp.vue";
 import FightHelperCard from "./cards/FightHelperCard.vue";
 import DreamHelperCard from "./cards/DreamHelperCard.vue";
@@ -324,7 +276,6 @@ import TowerStatus from "./Tower/TowerStatus.vue";
 import WeirdTowerStatus from "./Tower/WeirdTowerStatus.vue";
 import BossTower from "./Tower/BossTower.vue";
 import PeachInfo from "./Club/PeachInfo.vue";
-import ServerRankList from "./cards/ServerRankListPageCard.vue";
 import Unlimitedlineup from "./cards/Unlimitedlineup.vue";
 
 const tokenStore = useTokenStore();
@@ -339,7 +290,6 @@ const showIdentity = ref(false);
 const activeSection = ref("daily");
 const saltFieldSubTab = ref("warrank");
 const peachSubTab = ref("peach");
-const rankSubTab = ref("serverrank");
 
 // 活动开放时间：仅周一到周三可参与
 const isActivityOpen = computed(() => {
@@ -784,8 +734,7 @@ onUnmounted(() => {
 }
 
 .salt-field-group,
-.peach-group,
-.rank-group {
+.peach-group {
   grid-column: 1 / -1;
   width: 100%;
   display: flex;

@@ -1141,6 +1141,22 @@ const fetchBattleInfo = async () => {
     let killRes;
     const shortDate = formatDateToShort(queryDate.value);
 
+    // 本组件不主动拉 legionInfo, club 可能尚未加载 (切换 token / 直进本页) → 先兜底取一次
+    let ownClubId = club.value?.id;
+    if (!ownClubId) {
+      const legionRes = await tokenStore.sendMessageWithPromise(
+        tokenId,
+        "legion_getinfo",
+        {},
+        10000
+      );
+      ownClubId = legionRes?.info?.id;
+      if (!ownClubId) {
+        message.error("未获取到我方俱乐部信息, 请稍后重试");
+        return;
+      }
+    }
+
     // Time-based Logic
     // If selected date is today AND it is currently battle time, fetch live data
     if (queryDate.value === getLastSunday() && isSundayBattleTime()) {
@@ -1176,7 +1192,7 @@ const fetchBattleInfo = async () => {
       );
 
       // 2. Get Record Map
-      ownLegionId = club.value.id;
+      ownLegionId = ownClubId;
       const res = await tokenStore.sendMessageWithPromise(
         tokenId,
         "legion_getpayloadrecord",
@@ -1257,7 +1273,7 @@ const fetchBattleInfo = async () => {
         logo: clubInfoRes?.legionData?.logo || '',
         quenchNum: clubInfoRes?.legionData?.quenchNum || 0,
         announcement: clubInfoRes?.legionData?.announcement || '',
-        memberCount: killRes.recordsMap[opponentLegionId]?.length || 0,
+        memberCount: killRes?.recordsMap?.[opponentLegionId]?.length || 0,
       }
     }
 
