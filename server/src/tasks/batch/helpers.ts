@@ -81,8 +81,8 @@ export function defaultBatchSettings(): Record<string, unknown> {
   };
 }
 
-/** 单个 token 的最大尝试次数: 首次 + 一次连接层重试 */
-export const TOKEN_MAX_ATTEMPTS = 2;
+/** 单个 token 的最大尝试次数: 首次 + 重连重试 + 续期后重试 */
+export const TOKEN_MAX_ATTEMPTS = 3;
 
 /**
  * 连接层瞬时错误: 连接断开/尚未就绪/建连超时。
