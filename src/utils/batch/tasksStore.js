@@ -387,10 +387,169 @@ export function createTasksStore(deps) {
     shouldStop.value = false;
   };
 
+  /**
+   * 一键采购金鱼竿: 买光当前黑市的金鱼竿(itemId 1012) → 刷新黑市 → 继续买,
+   * 直到刷新次数用尽。与后端 tasksStore.ts 同逻辑 (定时任务走后端, 按钮走这里)。
+   */
+  const store_purchase_gold_rod = async () => {
+    if (selectedTokens.value.length === 0) return;
+
+    const ROD_ITEM_ID = 1012;
+    const MAX_ROD_ROUNDS = 60;
+
+    const extractGoods = (resp) => {
+      if (!resp || typeof resp !== "object") return [];
+      const raw =
+        resp.goodsList ?? resp.goods ?? resp.list ?? resp.goods_list ??
+        resp.data?.goodsList ?? resp.data?.goods ?? resp.store?.goodsList ?? [];
+      return Array.isArray(raw) ? raw : [];
+    };
+    const isRod = (g) =>
+      g?.itemId === ROD_ITEM_ID || g?.item?.id === ROD_ITEM_ID || g?.item?.itemId === ROD_ITEM_ID;
+    const getGoodsId = (g) => g?.goodsId ?? g?.id;
+
+    isRunning.value = true;
+    shouldStop.value = false;
+
+    selectedTokens.value.forEach((id) => {
+      tokenStatus.value[id] = "waiting";
+    });
+
+    const taskPromises = selectedTokens.value.map(async (tokenId) => {
+      if (shouldStop.value) return;
+
+      tokenStatus.value[tokenId] = "running";
+
+      const token = tokens.value.find((t) => t.id === tokenId);
+
+      try {
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `=== 开始一键采购金鱼竿: ${token.name} ===`,
+          type: "info",
+        });
+
+        await ensureConnection(tokenId);
+
+        let bought = 0;
+        let rounds = 0;
+
+        while (!shouldStop.value && rounds < MAX_ROD_ROUNDS) {
+          rounds++;
+
+          const listResp = await tokenStore.sendMessageWithPromise(
+            tokenId,
+            "store_goodslist",
+            { storeId: 1 },
+            8000,
+          );
+          await new Promise((r) => setTimeout(r, delayConfig.action));
+
+          const goods = extractGoods(listResp);
+          if (!goods.length) {
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `${token.name} 黑市商品列表为空或结构未识别: ${JSON.stringify(listResp ?? null).slice(0, 400)}`,
+              type: "warning",
+            });
+            break;
+          }
+
+          const rods = goods.filter(isRod);
+          addLog({
+            time: new Date().toLocaleTimeString(),
+            message: `${token.name} 第 ${rounds} 轮: 黑市 ${goods.length} 件商品, 其中金鱼竿 ${rods.length} 件`,
+            type: "info",
+          });
+
+          let goldRunOut = false;
+          for (const g of rods) {
+            if (shouldStop.value) break;
+            const res = await tokenStore.sendMessageWithPromise(
+              tokenId,
+              "store_purchase",
+              { goodsId: getGoodsId(g) },
+              8000,
+            );
+            await new Promise((r) => setTimeout(r, delayConfig.action));
+            if (res?.error) {
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 购买金鱼竿失败: ${res.error}`,
+                type: "warning",
+              });
+              if (/金砖|不足/.test(String(res.error))) {
+                goldRunOut = true;
+                break;
+              }
+            } else {
+              bought++;
+              addLog({
+                time: new Date().toLocaleTimeString(),
+                message: `${token.name} 已购买金鱼竿, 累计 ${bought} 根`,
+                type: "info",
+              });
+            }
+          }
+          if (goldRunOut || shouldStop.value) break;
+
+          const refreshResp = await tokenStore.sendMessageWithPromise(
+            tokenId,
+            "store_refresh",
+            { storeId: 1 },
+            8000,
+          );
+          await new Promise((r) => setTimeout(r, delayConfig.action));
+          if (refreshResp?.error) {
+            addLog({
+              time: new Date().toLocaleTimeString(),
+              message: `${token.name} 黑市刷新结束: ${refreshResp.error}`,
+              type: "info",
+            });
+            break;
+          }
+          addLog({
+            time: new Date().toLocaleTimeString(),
+            message: `${token.name} 黑市已刷新 (第 ${rounds} 轮)`,
+            type: "info",
+          });
+        }
+
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 一键采购金鱼竿完成: 共购买 ${bought} 根, ${rounds} 轮`,
+          type: bought > 0 ? "success" : "warning",
+        });
+        tokenStatus.value[tokenId] = "completed";
+      } catch (error) {
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 一键采购金鱼竿出错: ${error.message}`,
+          type: "error",
+        });
+        tokenStatus.value[tokenId] = "failed";
+      } finally {
+        releaseConnectionSlot();
+        addLog({
+          time: new Date().toLocaleTimeString(),
+          message: `${token.name} 任务完成  (队列: ${connectionQueue.active}/${batchSettings.maxActive})`,
+          type: "info",
+        });
+      }
+    });
+
+    await Promise.all(taskPromises);
+
+    currentRunningTokenId.value = null;
+    isRunning.value = false;
+    shouldStop.value = false;
+  };
+
   return {
     legion_storebuygoods,
     legionStoreBuySkinCoins,
     store_purchase,
+    store_purchase_gold_rod,
     collection_claimfreereward,
   };
 }

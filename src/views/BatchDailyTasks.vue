@@ -371,6 +371,13 @@
                 </n-button>
                 <n-button
                   size="small"
+                  @click="store_purchase_gold_rod"
+                  :disabled="isRunning || selectedTokens.length === 0"
+                >
+                  一键采购金鱼竿
+                </n-button>
+                <n-button
+                  size="small"
                   @click="collection_claimfreereward"
                   :disabled="isRunning || selectedTokens.length === 0"
                 >
@@ -5115,6 +5122,7 @@ const {
   legion_storebuygoods,
   legionStoreBuySkinCoins,
   store_purchase,
+  store_purchase_gold_rod,
   collection_claimfreereward,
 } = tasksStore;
 

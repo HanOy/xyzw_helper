@@ -100,10 +100,89 @@ export function createTasksStore(ctx: BatchContext) {
     }
   };
 
+  // 金鱼竿(黄金鱼竿) itemId; 1011=普通鱼竿
+  const ROD_ITEM_ID = 1012;
+  // 防死循环保险: 黑市刷新次数用尽前理论轮次很小
+  const MAX_ROD_ROUNDS = 60;
+
+  /**
+   * 一键采购金鱼竿: 买光当前黑市的金鱼竿 → 刷新黑市 → 继续买, 直到刷新次数用尽。
+   * store_goodslist 响应结构无历史样本, 做多形态防御解析; 解析失败时把原始响应
+   * 截断打进日志, 便于按真实结构修正字段名。
+   */
+  const store_purchase_gold_rod = async (): Promise<void> => {
+    if (ctx.shouldStop) return;
+    try {
+      ctx.log('info', `=== 开始一键采购金鱼竿: ${ctx.tokenId} ===`);
+
+      const extractGoods = (resp: any): any[] => {
+        if (!resp || typeof resp !== 'object') return [];
+        const raw =
+          resp.goodsList ?? resp.goods ?? resp.list ?? resp.goods_list ??
+          resp.data?.goodsList ?? resp.data?.goods ?? resp.store?.goodsList ?? [];
+        return Array.isArray(raw) ? raw : [];
+      };
+      const isRod = (g: any): boolean =>
+        g?.itemId === ROD_ITEM_ID || g?.item?.id === ROD_ITEM_ID || g?.item?.itemId === ROD_ITEM_ID;
+      const getGoodsId = (g: any) => g?.goodsId ?? g?.id;
+
+      let bought = 0;
+      let rounds = 0;
+
+      while (!ctx.shouldStop && rounds < MAX_ROD_ROUNDS) {
+        rounds++;
+        const listResp: any = await ctx.send('store_goodslist', { storeId: 1 }, 8000);
+        await ctx.sleep((ctx.delayConfig as any).action);
+
+        const goods = extractGoods(listResp);
+        if (!goods.length) {
+          ctx.log('warn', `${ctx.tokenId} 黑市商品列表为空或结构未识别, 原始响应: ${JSON.stringify(listResp ?? null).slice(0, 400)}`);
+          break;
+        }
+
+        const rods = goods.filter(isRod);
+        ctx.log('info', `${ctx.tokenId} 第 ${rounds} 轮: 黑市 ${goods.length} 件商品, 其中金鱼竿 ${rods.length} 件`);
+
+        let goldRunOut = false;
+        for (const g of rods) {
+          if (ctx.shouldStop) break;
+          const res: any = await ctx.send('store_purchase', { goodsId: getGoodsId(g) }, 8000);
+          await ctx.sleep((ctx.delayConfig as any).action);
+          if (res?.error) {
+            ctx.log('warn', `${ctx.tokenId} 购买金鱼竿失败: ${res.error}`);
+            // 金砖花光后继续刷新也只是空转, 直接收尾
+            if (/金砖|不足/.test(String(res.error))) {
+              goldRunOut = true;
+              break;
+            }
+          } else {
+            bought++;
+            ctx.log('info', `${ctx.tokenId} 已购买金鱼竿, 累计 ${bought} 根`);
+          }
+        }
+        if (goldRunOut || ctx.shouldStop) break;
+
+        const refreshResp: any = await ctx.send('store_refresh', { storeId: 1 }, 8000);
+        await ctx.sleep((ctx.delayConfig as any).action);
+        if (refreshResp?.error) {
+          ctx.log('info', `${ctx.tokenId} 黑市刷新结束: ${refreshResp.error}`);
+          break;
+        }
+        ctx.log('info', `${ctx.tokenId} 黑市已刷新 (第 ${rounds} 轮)`);
+      }
+
+      ctx.log('success', `${ctx.tokenId} === 一键采购金鱼竿完成: 共购买 ${bought} 根, ${rounds} 轮 ===`);
+    } catch (error) {
+      ctx.log('error', `${ctx.tokenId} 一键采购金鱼竿出错: ${(error as Error).message}`);
+      throw error;
+    }
+  };
+
   return {
     legion_storebuygoods,
     legionStoreBuySkinCoins,
     store_purchase,
+    store_purchase_gold_rod,
     collection_claimfreereward,
   };
 }

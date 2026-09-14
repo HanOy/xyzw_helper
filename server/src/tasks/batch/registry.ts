@@ -67,6 +67,7 @@ export async function dispatchSelectedTasks(ctx: BatchContext, selectedTasks: st
     // store
     legion_storebuygoods: factories.store.legion_storebuygoods,
     store_purchase: factories.store.store_purchase,
+    store_purchase_gold_rod: factories.store.store_purchase_gold_rod,
     collection_claimfreereward: factories.store.collection_claimfreereward,
     // legacy
     batchLegacyClaim: factories.legacy.batchLegacyClaim,

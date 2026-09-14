@@ -273,6 +273,8 @@ export const responseToCommandMap: Record<string, string | string[]> = {
   presetteam_getinforesp: "presetteam_getinfo",
   mail_claimallattachmentresp: "mail_claimallattachment",
   store_buyresp: "store_purchase",
+  store_goodslistresp: "store_goodslist",
+  store_refreshresp: "store_refresh",
   system_getdatabundleverresp: "system_getdatabundlever",
   tower_claimrewardresp: "tower_claimreward",
   fight_starttowerresp: "fight_starttower",
