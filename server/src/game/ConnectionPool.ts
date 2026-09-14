@@ -10,6 +10,10 @@ import { tokenService } from '../token/TokenService.js';
 
 const log = logger.child({ mod: 'connection-pool' });
 
+// 瞬断类错误判据 (与 tasks/batch/helpers.ts 的 TRANSIENT_CONN_RE 同源; 不直接
+// import, 避免 game/ → tasks/ 反向依赖)。
+const TRANSIENT_CONN_RE = /connection closed|connection timeout|token 未连接|WebSocket 未连接/i;
+
 export interface ConnectionMeta {
   id: string;
   name: string;
@@ -118,12 +122,48 @@ export class ConnectionPool {
     ]);
   }
 
+  /**
+   * 发送指令, 带内联自愈:
+   * 1. 未连接 → 先重建连接再发 (控制台等手动操作不再直接吃 "token 未连接")
+   * 2. 发送中遇瞬断 (会话过期被踢/掉线) → 服务端续期换新凭据 → 重试一次
+   * 自愈路径最长 ~15s (重建握手 / 3 次重连失败后续期), 期间调用方表现为请求变慢而非报错。
+   * 重试仅一次, 续期不可用的类型 (manual) 走原错误路径。
+   */
   async send<T = unknown>(id: string, cmd: string, params: Record<string, unknown> = {}, timeoutMs = 8000): Promise<T> {
+    const entry = this.entries.get(id);
+    if (!entry || !entry.socket.isConnected()) {
+      const meta = entry?.meta ?? tokenService.toConnectionMeta(id);
+      if (!meta) throw new Error('token 不存在');
+      await this.ensureConnection(meta);
+    }
+    try {
+      return await this.doSend<T>(id, cmd, params, timeoutMs);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err ?? '');
+      if (!TRANSIENT_CONN_RE.test(msg)) throw err;
+      // serverSideRefresh 有 refreshing 去重: 若重连耗尽已在途续期, 这里会跳过,
+      // 等 waitConnected 拿到新连接即可; 续期失败/不可用则原样抛出瞬断错误。
+      await this.serverSideRefresh(id).catch(() => undefined);
+      await this.waitConnected(id, 8000);
+      return this.doSend<T>(id, cmd, params, timeoutMs);
+    }
+  }
+
+  private async doSend<T = unknown>(id: string, cmd: string, params: Record<string, unknown>, timeoutMs: number): Promise<T> {
     const entry = this.entries.get(id);
     if (!entry || !entry.socket.isConnected()) {
       throw new Error('token 未连接');
     }
     return entry.socket.send<T>(cmd, params, timeoutMs);
+  }
+
+  /** 轮询等待连接就绪 (续期/重连在途时用); 超时静默返回, 由 doSend 抛出明确错误 */
+  private async waitConnected(id: string, timeoutMs: number): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      if (this.entries.get(id)?.socket.isConnected()) return;
+      await new Promise((r) => setTimeout(r, 300));
+    }
   }
 
   private buildGameWsUrl(meta: ConnectionMeta): string {
