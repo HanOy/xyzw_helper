@@ -83,7 +83,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && rm -rf /var/lib/apt/lists/* && \
     corepack enable && corepack prepare pnpm@10.19.0 --activate
 
-COPY --from=web-builder /app/dist /app/web
+# --chown 必须带: dist 里的文件继承自构建上下文的 mode, 在 NAS 等环境下可能是
+# 600 这类仅属主可读的权限; COPY 默认落成 root 属主, 切到 USER node 后就变成
+# EACCES (静态资源 500)。dist 只有几十 MB / 几百个文件, COPY 时直接落 node
+# 属主是零成本的; 千万别用 `RUN chown -R /app/web` —— 会把文件 copy-up 进新层。
+COPY --from=web-builder --chown=node:node /app/dist /app/web
 # --chown 在 COPY 时直接落成 node 属主: 避免事后 `chown -R /app` 把整个
 # node_modules (几万个文件) 逐个 copy-up 进新层 —— 那样这一步要跑几分钟,
 # 且镜像里 node_modules 会被完整复制两份。
