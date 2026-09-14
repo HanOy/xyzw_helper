@@ -201,7 +201,7 @@ export class ConnectionPool {
 
   /**
    * 服务端自动续期 + 重连 (不依赖前端).
-   * 在 WS reconnect 连续失败 5 次后由 GameSocket 触发.
+   * 在 WS reconnect 连续失败 3 次后由 GameSocket 触发 (~11s).
    * 流程: 读 importMethod → 选 refresh 路径(URL / raw_bin) → 更新加密凭据
    *       → **重新读取 meta** → 用新 p 重建连接.
    */

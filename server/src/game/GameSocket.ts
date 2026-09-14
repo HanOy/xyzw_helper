@@ -20,7 +20,7 @@ export interface GameSocketOptions {
   reconnectStableMs?: number;
   maxReconnectDelayMs?: number;
   onHandshakeFailed?: (tokenId: string) => void;
-  /** 重连连续失败达到阈值时触发 (供后端自动续期 + 重连使用) */
+  /** 重连连续失败达到阈值 (3 次, ~11s) 时触发 (供后端自动续期 + 重连使用) */
   onReconnectExhausted?: (tokenId: string) => void;
 }
 
@@ -106,9 +106,10 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.onReconnectExhausted = options.onReconnectExhausted;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
-    this.reconnectDelayMs = options.reconnectDelayMs ?? 3000;
+    // 退避 1.5s/3s/6s/... 上限 30s: 3 次失败累计 ~11s 即触发续期, 不让任务干等
+    this.reconnectDelayMs = options.reconnectDelayMs ?? 1500;
     this.reconnectStableMs = options.reconnectStableMs ?? 30000;
-    this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 60000;
+    this.maxReconnectDelayMs = options.maxReconnectDelayMs ?? 30000;
   }
 
   getStatus(): GameSocketStatus {
@@ -464,7 +465,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     // 连续重连失败达阈值 → 通知上层(后端自动续期 + 重连)
     if (
       !this.reconnectExhaustedNotified &&
-      this.reconnectAttempts >= 5 &&
+      this.reconnectAttempts >= 3 &&
       this.tokenId &&
       this.onReconnectExhausted
     ) {

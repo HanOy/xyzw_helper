@@ -9,8 +9,15 @@ export function registerTaskRoutes(app: FastifyInstance): void {
     '/api/tokens/:id/tasks/daily',
     { preHandler: app.authPreHandler },
     async (req) => {
-      const runId = await runDailyTasks(req.params.id, req.body?.settings as any);
-      return { success: true, data: { runId } };
+      // runDailyTasks 失败时会抛错 (让批处理层能重试/续期), 这里兜住转成失败响应,
+      // run 状态与错误详情仍可通过 GET /api/tasks/:runId 查询
+      let runId: string | undefined;
+      try {
+        runId = await runDailyTasks(req.params.id, req.body?.settings as any);
+        return { success: true, data: { runId } };
+      } catch (err) {
+        return { success: false, message: (err as Error).message, data: { runId } };
+      }
     },
   );
 

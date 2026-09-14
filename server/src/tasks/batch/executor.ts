@@ -69,7 +69,7 @@ export function runBatchOperations(
             await waitForReconnect(tokenId);
             // 最后一次尝试前若仍未稳定恢复, 先走服务端续期换新凭据:
             // 会话过期时服务器对旧凭据"握手成功但立即踢线", 仅重连永远进不去,
-            // 必须等 onReconnectExhausted (内部重连 5 次失败, ~45s) 才触发续期 —— 任务等不了那么久
+            // 必须等 onReconnectExhausted (内部重连 3 次失败, ~11s) 才触发续期 —— 任务等不了那么久
             if (attempt === TOKEN_MAX_ATTEMPTS - 1) {
               taskLog({
                 runId: batchId,

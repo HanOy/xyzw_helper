@@ -81,6 +81,7 @@ export function runBatchDailyTasks(
   });
 
   void (async () => {
+    let failedCount = 0;
     try {
       for (let i = 0; i < opts.tokenIds.length; i++) {
     if (isCancelled(batchId)) {
@@ -120,7 +121,7 @@ export function runBatchDailyTasks(
             await waitForReconnect(tokenId);
             // 最后一次尝试前若仍未稳定恢复, 先走服务端续期换新凭据:
             // 会话过期时服务器对旧凭据"握手成功但立即踢线", 仅重连永远进不去,
-            // 必须等 onReconnectExhausted (内部重连 5 次失败, ~45s) 才触发续期 —— 任务等不了那么久
+            // 必须等 onReconnectExhausted (内部重连 3 次失败, ~11s) 才触发续期 —— 任务等不了那么久
             if (attempt === TOKEN_MAX_ATTEMPTS - 1) {
               taskLog({
                 runId: batchId,
@@ -136,15 +137,30 @@ export function runBatchDailyTasks(
         }
       }
       if (lastError) {
+        failedCount += 1;
         taskLog({ runId: batchId, tokenId, level: 'error', message: `${tokenName} 失败: ${lastError.message}` });
       }
     });
     taskProgress(batchId, i + 1, opts.tokenIds.length, tokenName);
       }
 
-      updateRun(batchId, { status: 'success', finishedAt: new Date().toISOString() });
-      taskLog({ runId: batchId, level: 'info', message: '批日常任务完成' });
-      onComplete?.('success');
+      const total = opts.tokenIds.length;
+      const status = failedCount === 0 ? 'success' : failedCount >= total ? 'failed' : 'partial';
+      updateRun(batchId, {
+        status,
+        finishedAt: new Date().toISOString(),
+        error: failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined,
+      });
+      if (failedCount > 0) {
+        taskLog({
+          runId: batchId,
+          level: failedCount >= total ? 'error' : 'warn',
+          message: `批日常任务完成: 成功 ${total - failedCount}/${total}`,
+        });
+      } else {
+        taskLog({ runId: batchId, level: 'info', message: '批日常任务完成' });
+      }
+      onComplete?.(status, failedCount > 0 ? `${failedCount}/${total} 个账号失败` : undefined);
     } catch (err) {
       const message = (err as Error).message;
       updateRun(batchId, { status: 'failed', finishedAt: new Date().toISOString(), error: message });

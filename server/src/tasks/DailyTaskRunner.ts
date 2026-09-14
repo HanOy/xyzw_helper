@@ -458,6 +458,10 @@ export async function runDailyTasks(tokenId: string, customSettings?: DailyTaskS
     log.error({ err: (err as Error).message }, 'daily run failed');
     taskLog({ runId, tokenId, level: 'error', message: (err as Error).message });
     updateRun(runId, { status: 'failed', finishedAt: new Date().toISOString(), error: (err as Error).message });
+    // 必须把错误抛给调用方: 批处理靠它进入重试循环, 并在重试间隙触发
+    // serverSideRefresh 续期。此前这里吞错返回, 连接断开时上层误判"任务完成",
+    // 重试与续期整条链路都不会触发。
+    throw err;
   }
   return runId;
 }
