@@ -46,7 +46,10 @@ COPY src ./src
 COPY vite.config.js tsconfig.json tsconfig.app.json tsconfig.node.json ./
 COPY uno.config.ts eslint.config.ts components.d.ts ./
 
-RUN pnpm run build
+# 构建后规范化 dist 权限: NAS 构建上下文里的文件 mode 可能是 000 (拷贝/同步丢权限位),
+# COPY 会原样继承 mode, 运行时 node 用户读不了 → EACCES。u+rwX/go+rX = 文件 644、目录 755。
+# 在 builder 层做掉, 运行时层无需 chmod copy-up。
+RUN pnpm run build && chmod -R u+rwX,go+rX /app/dist
 
 # --- Stage 3: install server deps (clean) ---
 FROM node:20-bookworm-slim AS server-deps
@@ -68,8 +71,12 @@ FROM server-deps AS server-builder
 WORKDIR /app/server
 COPY server/tsconfig.json ./tsconfig.json
 COPY server/src ./src
+# 同上: 上下文来的 package.json 也是 000, 运行时 node 要读它; dist/node_modules
+# 本应是 644/755, prune 后统一兜底规范化 (builder 层元数据操作, 零成本)。
 RUN pnpm run build && \
-    pnpm prune --prod
+    pnpm prune --prod && \
+    chmod -R u+rwX,go+rX /app/server/dist /app/server/node_modules && \
+    chmod 644 /app/server/package.json
 
 # --- Stage 5: runtime ---
 FROM node:20-bookworm-slim
@@ -83,10 +90,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates && rm -rf /var/lib/apt/lists/* && \
     corepack enable && corepack prepare pnpm@10.19.0 --activate
 
-# --chown 必须带: dist 里的文件继承自构建上下文的 mode, 在 NAS 等环境下可能是
-# 600 这类仅属主可读的权限; COPY 默认落成 root 属主, 切到 USER node 后就变成
-# EACCES (静态资源 500)。dist 只有几十 MB / 几百个文件, COPY 时直接落 node
-# 属主是零成本的; 千万别用 `RUN chown -R /app/web` —— 会把文件 copy-up 进新层。
+# --chown + builder 阶段已 chmod: dist 文件落 node 属主且 mode 为 644/755。
+# 千万别在运行时层 `RUN chown/chmod -R /app` —— 会把文件 copy-up 进新层,
+# node_modules (几万个文件) 那样做要跑几分钟且镜像翻倍。
 COPY --from=web-builder --chown=node:node /app/dist /app/web
 # --chown 在 COPY 时直接落成 node 属主: 避免事后 `chown -R /app` 把整个
 # node_modules (几万个文件) 逐个 copy-up 进新层 —— 那样这一步要跑几分钟,
