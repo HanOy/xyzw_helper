@@ -102,6 +102,8 @@ export function createTasksStore(ctx: BatchContext) {
 
   // 金鱼竿(黄金鱼竿) itemId; 1011=普通鱼竿
   const ROD_ITEM_ID = 1012;
+  // 兜底: 若 goodslist 响应里没有 item 字段, 改用黑市槽位 goodsId 识别金鱼竿 (跑一次后按日志填)
+  const ROD_GOODS_IDS: Array<number | string> = [];
   // 防死循环保险: 黑市刷新次数用尽前理论轮次很小
   const MAX_ROD_ROUNDS = 60;
 
@@ -120,11 +122,27 @@ export function createTasksStore(ctx: BatchContext) {
         const raw =
           resp.goodsList ?? resp.goods ?? resp.list ?? resp.goods_list ??
           resp.data?.goodsList ?? resp.data?.goods ?? resp.store?.goodsList ?? [];
-        return Array.isArray(raw) ? raw : [];
+        if (Array.isArray(raw)) return raw;
+        if (raw && typeof raw === 'object') {
+          // 记录形态: goodsList: { "1": {...}, "2": {...} }, key 即 goodsId
+          return Object.entries(raw).map(([gid, info]) => ({
+            goodsId: /^\d+$/.test(gid) ? Number(gid) : gid,
+            ...(typeof info === 'object' && info !== null ? info : { value: info }),
+          }));
+        }
+        return [];
       };
       const isRod = (g: any): boolean =>
-        g?.itemId === ROD_ITEM_ID || g?.item?.id === ROD_ITEM_ID || g?.item?.itemId === ROD_ITEM_ID;
+        [g?.itemId, g?.item_id, g?.item?.id, g?.item?.itemId, g?.goods?.itemId, g?.goods?.id]
+          .includes(ROD_ITEM_ID) || ROD_GOODS_IDS.includes(getGoodsId(g));
       const getGoodsId = (g: any) => g?.goodsId ?? g?.id;
+      // 原始响应完整落日志 (分块), 结构不符时用来定位字段名
+      const dumpRaw = (label: string, resp: any) => {
+        const s = JSON.stringify(resp ?? null) ?? 'null';
+        for (let i = 0; i < s.length; i += 600) {
+          ctx.log('warn', `${ctx.tokenId} ${label}[${Math.floor(i / 600) + 1}]: ${s.slice(i, i + 600)}`);
+        }
+      };
 
       let bought = 0;
       let rounds = 0;
@@ -136,12 +154,18 @@ export function createTasksStore(ctx: BatchContext) {
 
         const goods = extractGoods(listResp);
         if (!goods.length) {
-          ctx.log('warn', `${ctx.tokenId} 黑市商品列表为空或结构未识别, 原始响应: ${JSON.stringify(listResp ?? null).slice(0, 400)}`);
+          dumpRaw('黑市商品列表为空或结构未识别, 原始响应', listResp);
           break;
         }
 
         const rods = goods.filter(isRod);
         ctx.log('info', `${ctx.tokenId} 第 ${rounds} 轮: 黑市 ${goods.length} 件商品, 其中金鱼竿 ${rods.length} 件`);
+        if (!rods.length) {
+          // 商品能解析但没匹配到 itemId=1012: 响应里可能没有 item 字段,
+          // 全量落日志定位 goodsId→道具 的映射方式
+          dumpRaw('未在商品中识别到金鱼竿(1012), 原始响应', listResp);
+          break;
+        }
 
         let goldRunOut = false;
         for (const g of rods) {
