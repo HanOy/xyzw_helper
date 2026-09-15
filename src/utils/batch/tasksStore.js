@@ -437,6 +437,15 @@ export function createTasksStore(deps) {
         });
       }
     };
+    // sendMessageWithPromise 遇到服务器错误码 (如 1300030 刷新次数用尽/金砖不足) 会
+    // 直接 throw, 包一层转成 {error} 返回, 让循环里的错误分支统一处理而非中断任务
+    const safeSend = async (tokenId, cmd, params = {}, timeoutMs = 8000) => {
+      try {
+        return await tokenStore.sendMessageWithPromise(tokenId, cmd, params, timeoutMs);
+      } catch (err) {
+        return { error: err?.message ?? String(err) };
+      }
+    };
 
     isRunning.value = true;
     shouldStop.value = false;
@@ -516,7 +525,7 @@ export function createTasksStore(deps) {
                 message: `${token.name} 购买金鱼竿失败: ${res.error}`,
                 type: "warning",
               });
-              if (/金砖|不足/.test(String(res.error))) {
+              if (/金砖|不足|限购|1300030/.test(String(res.error))) {
                 goldRunOut = true;
                 break;
               }
@@ -531,17 +540,16 @@ export function createTasksStore(deps) {
           }
           if (goldRunOut || shouldStop.value) break;
 
-          const refreshResp = await tokenStore.sendMessageWithPromise(
-            tokenId,
-            "store_refresh",
-            { storeId: 1 },
-            8000,
-          );
+          const refreshResp = await safeSend(tokenId, "store_refresh", { storeId: 1 }, 8000);
           await new Promise((r) => setTimeout(r, delayConfig.action));
           if (refreshResp?.error) {
+            const msg = String(refreshResp.error);
+            // 1300030 = 今日刷新次数用尽, 属正常结束而非故障 (2026-09-15 实测确认)
             addLog({
               time: new Date().toLocaleTimeString(),
-              message: `${token.name} 黑市刷新结束: ${refreshResp.error}`,
+              message: /1300030/.test(msg)
+                ? `${token.name} 黑市今日刷新次数已用尽, 采购结束`
+                : `${token.name} 黑市刷新结束: ${msg}`,
               type: "info",
             });
             break;

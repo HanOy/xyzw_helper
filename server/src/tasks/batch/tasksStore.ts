@@ -152,6 +152,15 @@ export function createTasksStore(ctx: BatchContext) {
           ctx.log('warn', `${ctx.tokenId} ${label}[${Math.floor(i / 600) + 1}]: ${s.slice(i, i + 600)}`);
         }
       };
+      // GameSocket.send 遇到服务器错误码 (如 1300030 刷新次数用尽/金砖不足) 会直接
+      // throw, 包一层转成 {error} 返回, 让循环里的错误分支统一处理而非中断整个任务
+      const safeSend = async (cmd: string, params: Record<string, unknown> = {}, timeoutMs = 8000) => {
+        try {
+          return await ctx.send(cmd, params, timeoutMs);
+        } catch (err) {
+          return { error: (err as Error).message };
+        }
+      };
 
       let bought = 0;
       let rounds = 0;
@@ -187,8 +196,8 @@ export function createTasksStore(ctx: BatchContext) {
           await ctx.sleep((ctx.delayConfig as any).action);
           if (res?.error) {
             ctx.log('warn', `${ctx.tokenId} 购买金鱼竿失败: ${res.error}`);
-            // 金砖花光后继续刷新也只是空转, 直接收尾
-            if (/金砖|不足/.test(String(res.error))) {
+            // 金砖花光/限购后继续刷新也只是空转, 直接收尾
+            if (/金砖|不足|限购|1300030/.test(String(res.error))) {
               goldRunOut = true;
               break;
             }
@@ -199,10 +208,16 @@ export function createTasksStore(ctx: BatchContext) {
         }
         if (goldRunOut || ctx.shouldStop) break;
 
-        const refreshResp: any = await ctx.send('store_refresh', { storeId: 1 }, 8000);
+        const refreshResp: any = await safeSend('store_refresh', { storeId: 1 }, 8000);
         await ctx.sleep((ctx.delayConfig as any).action);
         if (refreshResp?.error) {
-          ctx.log('info', `${ctx.tokenId} 黑市刷新结束: ${refreshResp.error}`);
+          const msg = String(refreshResp.error);
+          // 1300030 = 今日刷新次数用尽, 属正常结束而非故障 (2026-09-15 实测确认)
+          if (/1300030/.test(msg)) {
+            ctx.log('info', `${ctx.tokenId} 黑市今日刷新次数已用尽, 采购结束`);
+          } else {
+            ctx.log('info', `${ctx.tokenId} 黑市刷新结束: ${msg}`);
+          }
           break;
         }
         ctx.log('info', `${ctx.tokenId} 黑市已刷新 (第 ${rounds} 轮)`);
