@@ -395,8 +395,9 @@ export function createTasksStore(deps) {
     if (selectedTokens.value.length === 0) return;
 
     const ROD_ITEM_ID = 1012;
-    // 兜底: 若 goodslist 响应里没有 item 字段, 改用黑市槽位 goodsId 识别金鱼竿 (跑一次后按日志填)
-    const ROD_GOODS_IDS = [];
+    // 黑市槽位配置 (来自游戏客户端 GoodsConf 表, config_ap.json, 2026-09-15 提取):
+    // goodsId 1~16 固定槽位, goodsId=12 即金鱼竿 (itemId 1012, 一轮 5 根, 基础价 2500, 每日限购 1)。
+    const ROD_GOODS_IDS = [12];
     const MAX_ROD_ROUNDS = 60;
 
     const extractGoods = (resp) => {
