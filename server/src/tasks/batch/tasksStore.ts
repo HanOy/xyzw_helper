@@ -106,6 +106,8 @@ export function createTasksStore(ctx: BatchContext) {
   // goodsId 1~16 固定槽位, goodsId=12 即金鱼竿 (itemId 1012, 一轮 5 根, 基础价 2500, 每日限购 1)。
   // 服务端响应只有 buy_quantity/discount, 道具身份靠这张静态表。
   const ROD_GOODS_IDS: Array<number | string> = [12];
+  // GoodsConf: 黑市一份金鱼竿 (goodsId=12) 含 5 根
+  const RODS_PER_BUY = 5;
   // 防死循环保险: 黑市刷新次数用尽前理论轮次很小
   const MAX_ROD_ROUNDS = 60;
 
@@ -167,7 +169,7 @@ export function createTasksStore(ctx: BatchContext) {
 
       while (!ctx.shouldStop && rounds < MAX_ROD_ROUNDS) {
         rounds++;
-        const listResp: any = await ctx.send('store_goodslist', { storeId: 1 }, 8000);
+        const listResp: any = await safeSend('store_goodslist', { storeId: 1 }, 8000);
         await ctx.sleep((ctx.delayConfig as any).action);
 
         const goods = extractGoods(listResp);
@@ -192,7 +194,9 @@ export function createTasksStore(ctx: BatchContext) {
         let goldRunOut = false;
         for (const g of rods) {
           if (ctx.shouldStop) break;
-          const res: any = await ctx.send('store_purchase', { goodsId: getGoodsId(g) }, 8000);
+          // 买指定商品必须用 store_buy; store_purchase 是"一键采购"(空参数, goodsId
+          // 被忽略) — 之前误用导致返回成功但实际没买金鱼竿 (2026-09-16 游戏源码确认)
+          const res: any = await safeSend('store_buy', { goodsId: getGoodsId(g) }, 8000);
           await ctx.sleep((ctx.delayConfig as any).action);
           if (res?.error) {
             ctx.log('warn', `${ctx.tokenId} 购买金鱼竿失败: ${res.error}`);
@@ -202,8 +206,9 @@ export function createTasksStore(ctx: BatchContext) {
               break;
             }
           } else {
-            bought++;
-            ctx.log('info', `${ctx.tokenId} 已购买金鱼竿, 累计 ${bought} 根`);
+            // GoodsConf: goodsId=12 一份 = 5 根金鱼竿
+            bought += RODS_PER_BUY;
+            ctx.log('info', `${ctx.tokenId} 已购买金鱼竿 x${RODS_PER_BUY}, 累计 ${bought} 根`);
           }
         }
         if (goldRunOut || ctx.shouldStop) break;

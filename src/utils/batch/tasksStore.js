@@ -398,6 +398,8 @@ export function createTasksStore(deps) {
     // 黑市槽位配置 (来自游戏客户端 GoodsConf 表, config_ap.json, 2026-09-15 提取):
     // goodsId 1~16 固定槽位, goodsId=12 即金鱼竿 (itemId 1012, 一轮 5 根, 基础价 2500, 每日限购 1)。
     const ROD_GOODS_IDS = [12];
+    // GoodsConf: 黑市一份金鱼竿 (goodsId=12) 含 5 根
+    const RODS_PER_BUY = 5;
     const MAX_ROD_ROUNDS = 60;
 
     const extractGoods = (resp) => {
@@ -476,12 +478,7 @@ export function createTasksStore(deps) {
         while (!shouldStop.value && rounds < MAX_ROD_ROUNDS) {
           rounds++;
 
-          const listResp = await tokenStore.sendMessageWithPromise(
-            tokenId,
-            "store_goodslist",
-            { storeId: 1 },
-            8000,
-          );
+          const listResp = await safeSend(tokenId, "store_goodslist", { storeId: 1 }, 8000);
           await new Promise((r) => setTimeout(r, delayConfig.action));
 
           const goods = extractGoods(listResp);
@@ -512,12 +509,9 @@ export function createTasksStore(deps) {
           let goldRunOut = false;
           for (const g of rods) {
             if (shouldStop.value) break;
-            const res = await tokenStore.sendMessageWithPromise(
-              tokenId,
-              "store_purchase",
-              { goodsId: getGoodsId(g) },
-              8000,
-            );
+            // 买指定商品必须用 store_buy; store_purchase 是"一键采购"(空参数, goodsId
+            // 被忽略) — 之前误用导致返回成功但实际没买金鱼竿 (2026-09-16 游戏源码确认)
+            const res = await safeSend(tokenId, "store_buy", { goodsId: getGoodsId(g) }, 8000);
             await new Promise((r) => setTimeout(r, delayConfig.action));
             if (res?.error) {
               addLog({
@@ -530,10 +524,11 @@ export function createTasksStore(deps) {
                 break;
               }
             } else {
-              bought++;
+              // GoodsConf: goodsId=12 一份 = 5 根金鱼竿
+              bought += RODS_PER_BUY;
               addLog({
                 time: new Date().toLocaleTimeString(),
-                message: `${token.name} 已购买金鱼竿, 累计 ${bought} 根`,
+                message: `${token.name} 已购买金鱼竿 x${RODS_PER_BUY}, 累计 ${bought} 根`,
                 type: "info",
               });
             }

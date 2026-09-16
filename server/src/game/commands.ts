@@ -272,7 +272,8 @@ export const responseToCommandMap: Record<string, string | string[]> = {
   presetteam_saveteamresp: "presetteam_saveteam",
   presetteam_getinforesp: "presetteam_getinfo",
   mail_claimallattachmentresp: "mail_claimallattachment",
-  store_buyresp: "store_purchase",
+  // store_buy (买指定商品) 与 store_purchase (一键采购) 的响应都是 store_buyresp
+  store_buyresp: ["store_buy", "store_purchase"],
   store_goodslistresp: "store_goodslist",
   store_refreshresp: "store_refresh",
   system_getdatabundleverresp: "system_getdatabundlever",
