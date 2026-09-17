@@ -90,6 +90,9 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private intentionalClose = false;
   // 重连失败达阈值后是否已触发过 onReconnectExhausted, 避免同一会话里重复触发续期
   private reconnectExhaustedNotified = false;
+  // 最近收到的帧摘要 (环形, 8 条): 断线时随 close 日志落盘, 用于抓取服务端
+  // 踢线前的应用层信号 (如被顶号通知) — 平时不打日志, 零开销
+  private recentFrames: string[] = [];
 
   private sendQueue: QueueTask[] = [];
   private sendTimer: NodeJS.Timeout | null = null;
@@ -150,6 +153,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
       const onOpen = () => {
         this.everOpened = true;
+        this.recentFrames = [];
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
@@ -188,6 +192,14 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
               this.resolvePromises(msg);
               return;
             }
+            // 记录帧摘要供断线时 dump (顶号/踢线信号抓取用)
+            this.recentFrames.push(
+              `${new Date().toISOString().slice(11, 23)} ${msg.cmd || '(no cmd)'}` +
+                (msg.resp !== undefined ? ` resp=${msg.resp}` : '') +
+                (msg.code !== undefined ? ` code=${msg.code}` : '') +
+                (msg.hint ? ` hint=${msg.hint}` : ''),
+            );
+            if (this.recentFrames.length > 8) this.recentFrames.shift();
             // 其他标了 noBus 的命令响应: 走 pending 清理但不 emit
             if (typeof msg.resp === 'number' && this.noBusSeqs.has(msg.resp)) {
               this.noBusSeqs.delete(msg.resp);
@@ -207,7 +219,11 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
 
       const onClose = (code: number, reasonBuf: Buffer) => {
         const reason = reasonBuf?.toString() ?? '';
-        wsLog.info({ code, reason, reconnectAttempts: this.reconnectAttempts }, 'ws closed');
+        // 连同最近帧一起落盘: 若服务端踢人前发过应用层通知 (被顶号), 信号会在这里
+        wsLog.info(
+          { code, reason, reconnectAttempts: this.reconnectAttempts, recentFrames: [...this.recentFrames] },
+          'ws closed',
+        );
         // 握手失败 (1006 + 从未 open) → 通知上层尝试刷新 token
         if (!this.everOpened && code === 1006 && this.tokenId && this.onHandshakeFailed) {
           try {
