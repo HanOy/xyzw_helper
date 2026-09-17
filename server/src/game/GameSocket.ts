@@ -22,6 +22,8 @@ export interface GameSocketOptions {
   onHandshakeFailed?: (tokenId: string) => void;
   /** 重连连续失败达到阈值 (3 次, ~11s) 时触发 (供后端自动续期 + 重连使用) */
   onReconnectExhausted?: (tokenId: string) => void;
+  /** 收到 _sys/fatal 后连接被服务端关闭 (顶号/会话失效): 上层据此标记"让位", 不再自动重连 */
+  onFatalClose?: (tokenId: string) => void;
 }
 
 interface QueueTask {
@@ -62,6 +64,12 @@ export interface GameMessage {
 
 const HEARTBEAT_CMD = '_sys/ack';
 
+/**
+ * 服务端主动使会话失效的应用层通知 (实测 2026-09-17: 顶号时 close 前必收到
+ * `_sys/fatal code=-1`, 普通网络掉线没有这一帧), 随后连接立即被服务端关闭。
+ */
+const FATAL_CMD = '_sys/fatal';
+
 /** 非手动掉线后持续重连的时间窗口：超过则置“异常”并停止尝试 */
 const RECONNECT_WINDOW_MS = 5 * 60 * 1000;
 
@@ -70,6 +78,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   private readonly tokenId: string | undefined;
   private readonly onHandshakeFailed: ((tokenId: string) => void) | undefined;
   private readonly onReconnectExhausted: ((tokenId: string) => void) | undefined;
+  private readonly onFatalClose: ((tokenId: string) => void) | undefined;
   private readonly heartbeatMs: number;
   private readonly sendQueueIntervalMs: number;
   private readonly reconnectDelayMs: number;
@@ -93,6 +102,8 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
   // 最近收到的帧摘要 (环形, 8 条): 断线时随 close 日志落盘, 用于抓取服务端
   // 踢线前的应用层信号 (如被顶号通知) — 平时不打日志, 零开销
   private recentFrames: string[] = [];
+  // 本连接内收到过 _sys/fatal (服务端已使会话失效, 顶号/过期) → close 时让位, 不自动重连
+  private fatalSeen = false;
 
   private sendQueue: QueueTask[] = [];
   private sendTimer: NodeJS.Timeout | null = null;
@@ -107,6 +118,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
     this.tokenId = options.tokenId;
     this.onHandshakeFailed = options.onHandshakeFailed;
     this.onReconnectExhausted = options.onReconnectExhausted;
+    this.onFatalClose = options.onFatalClose;
     this.heartbeatMs = options.heartbeatMs ?? 5000;
     this.sendQueueIntervalMs = options.sendQueueIntervalMs ?? 50;
     // 退避 1.5s/3s/6s/... 上限 30s: 3 次失败累计 ~11s 即触发续期, 不让任务干等
@@ -154,6 +166,7 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
       const onOpen = () => {
         this.everOpened = true;
         this.recentFrames = [];
+        this.fatalSeen = false;
         this.setStatus('connected');
         this.startHeartbeat();
         this.startQueueLoop();
@@ -200,6 +213,14 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
                 (msg.hint ? ` hint=${msg.hint}` : ''),
             );
             if (this.recentFrames.length > 8) this.recentFrames.shift();
+            // 服务端 fatal: 会话已失效 (顶号/过期), 标记后 close 时走"让位"分支
+            if (msg.cmd === FATAL_CMD) {
+              this.fatalSeen = true;
+              wsLog.warn(
+                { tokenId: this.tokenId, code: msg.code },
+                '收到服务端 fatal 通知, 会话即将失效',
+              );
+            }
             // 其他标了 noBus 的命令响应: 走 pending 清理但不 emit
             if (typeof msg.resp === 'number' && this.noBusSeqs.has(msg.resp)) {
               this.noBusSeqs.delete(msg.resp);
@@ -235,6 +256,23 @@ export class GameSocket extends EventEmitter<GameSocketEvents> {
         this.cleanup();
         this.setStatus('disconnected', reason || `code ${code}`);
         if (!this.intentionalClose) {
+          // 服务端 fatal (顶号/会话失效): 让位 —— 不自动重连、不自动续期 (续期会从手机
+          // 手里抢回会话, 形成互踢)。恢复途径: 定时任务 ensureConnection / 控制台 send
+          // 内联自愈 / 手动连接按钮。
+          if (this.fatalSeen) {
+            wsLog.warn(
+              { tokenId: this.tokenId, code },
+              'fatal 踢线: 已让位, 不自动重连 (定时任务执行或手动连接时恢复)',
+            );
+            if (this.tokenId && this.onFatalClose) {
+              try {
+                this.onFatalClose(this.tokenId);
+              } catch (err) {
+                wsLog.warn({ err: (err as Error).message }, 'onFatalClose callback threw');
+              }
+            }
+            return;
+          }
           this.scheduleReconnect();
         }
       };

@@ -9,7 +9,8 @@ export type BusEvent =
   | { type: 'task.progress'; runId: string; current: number; total: number; stage?: string }
   | { type: 'sse.attach'; tokenIds: string[] | null }
   | { type: 'sse.detach'; tokenIds: string[] | null }
-  | { type: 'token.refresh_suggested'; tokenId: string; reason: string };
+  | { type: 'token.refresh_suggested'; tokenId: string; reason: string }
+  | { type: 'token.yielded'; tokenId: string; reason: string };
 
 class TypedBus {
   private emitter: EventEmitter3;

@@ -160,6 +160,23 @@ export const useTokensStore = defineStore('tokens', () => {
       } else if (evt.type === 'token.refresh_suggested') {
         // 后端检测到该 token 续期需要 (例如握手失败), 触发自动续期
         void attemptTokenRefresh(evt.tokenId);
+      } else if (evt.type === 'token.yielded') {
+        // 服务端 fatal 踢线 (顶号/会话失效), helper 主动让位: 不自动重连,
+        // 等定时任务执行或手动连接时恢复。状态置断开 + 任务日志给可见提示。
+        connectionStatus.value[evt.tokenId] = 'disconnected';
+        const t = tokens.value.find((x) => x.id === evt.tokenId);
+        if (t) t.status = 'disconnected';
+        logs.value.push({
+          id: logs.value.length + 1,
+          runId: 'system',
+          tokenId: evt.tokenId,
+          level: 'warn',
+          message: '检测到顶号/服务端踢线, 已让位不自动重连; 定时任务执行或手动连接时恢复',
+          ts: new Date().toISOString(),
+        });
+        if (logs.value.length > 1000) logs.value.splice(0, 100);
+        const yieldName = t?.name ?? evt.tokenId;
+        emitToast('warning', `${yieldName} 检测到顶号/踢线, 已让位 (定时任务或手动连接时恢复)`);
       }
     },
   });

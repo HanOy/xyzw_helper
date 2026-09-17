@@ -13,7 +13,8 @@ export type SseEvent =
       ts: string;
     }
   | { type: 'task.progress'; runId: string; current: number; total: number; stage?: string }
-  | { type: 'token.refresh_suggested'; tokenId: string; reason: string };
+  | { type: 'token.refresh_suggested'; tokenId: string; reason: string }
+  | { type: 'token.yielded'; tokenId: string; reason: string };
 
 export interface UseSseStreamOptions {
   tokenIds?: string[];

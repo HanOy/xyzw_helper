@@ -81,6 +81,7 @@ export class ConnectionPool {
       tokenId: meta.id,
       onHandshakeFailed: (tokenId: string) => this.notifyTokenRefreshNeeded(tokenId, 'handshake_failed'),
       onReconnectExhausted: (tokenId: string) => void this.serverSideRefresh(tokenId),
+      onFatalClose: (tokenId: string) => this.handleFatalClose(tokenId),
     });
     const entry: PoolEntry = {
       socket,
@@ -237,6 +238,17 @@ export class ConnectionPool {
       tokenId,
       reason: t && t.importMethod !== 'url' ? `${reason}:non-url` : reason,
     });
+  }
+
+  /**
+   * 服务端 fatal 踢线 (顶号/会话失效) 后的"让位"处理:
+   * 不自动重连、不自动续期 —— 自动续期会从手机手里抢回会话, 形成互踢循环。
+   * 仅广播 token.yielded 供前端提示; 恢复途径: 定时任务 ensureConnection /
+   * 控制台 send 内联自愈 / 手动连接 (三者都是显式发起, 连回即顶掉手机, 符合预期)。
+   */
+  private handleFatalClose(tokenId: string): void {
+    log.warn({ tokenId }, 'token 已让位 (服务端 fatal 踢线), 等待定时任务或手动连接');
+    bus.emit('event', { type: 'token.yielded', tokenId, reason: 'server_fatal_kick' });
   }
 
   /**
