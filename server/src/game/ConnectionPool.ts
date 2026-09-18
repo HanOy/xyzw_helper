@@ -14,6 +14,11 @@ const log = logger.child({ mod: 'connection-pool' });
 // import, 避免 game/ → tasks/ 反向依赖)。
 const TRANSIENT_CONN_RE = /connection closed|connection timeout|token 未连接|WebSocket 未连接/i;
 
+// connect 发起后短时间内被 fatal 踢 = 存储凭据已失效 (被顶/过期), 应续期重试而非让位
+const FATAL_CONNECT_GRACE_MS = 15_000;
+// fatal 触发续期的冷却: 冷却期内再次 fatal 直接让位, 防止 续期→被踢→再续期 循环
+const FATAL_REFRESH_COOLDOWN_MS = 2 * 60 * 1000;
+
 export interface ConnectionMeta {
   id: string;
   name: string;
@@ -39,6 +44,10 @@ export class ConnectionPool {
   private connectingSlots = 0;
   /** 正在自动续期的 token, 防止同一 token 并发/循环触发续期 */
   private refreshing = new Set<string>();
+  /** 最近一次主动 connect 发起时间: 区分"刚连就被 fatal 踢"(凭据失效, 需续期) 与"空闲被顶号"(让位) */
+  private lastConnectAt = new Map<string, number>();
+  /** 最近一次因 fatal 触发的续期时间: 冷却期内不再重复续期 (防循环), 直接让位 */
+  private lastFatalRefreshAt = new Map<string, number>();
   private readonly maxConcurrent: number;
   private readonly intervalMs: number;
   private readonly defaultGameWsUrl: string;
@@ -92,6 +101,7 @@ export class ConnectionPool {
       lastRandomSeedSource: null,
     };
     this.entries.set(meta.id, entry);
+    this.lastConnectAt.set(meta.id, Date.now());
     this.attachHandlers(meta.id, socket);
     await socket.connect();
     return entry;
@@ -109,6 +119,7 @@ export class ConnectionPool {
     const entry = this.entries.get(id);
     if (!entry) throw new Error('token not connected');
     entry.socket.disconnect();
+    this.lastConnectAt.set(id, Date.now());
     await entry.socket.connect();
   }
 
@@ -241,13 +252,28 @@ export class ConnectionPool {
   }
 
   /**
-   * 服务端 fatal 踢线 (顶号/会话失效) 后的"让位"处理:
-   * 不自动重连、不自动续期 —— 自动续期会从手机手里抢回会话, 形成互踢循环。
-   * 仅广播 token.yielded 供前端提示; 恢复途径: 定时任务 ensureConnection /
-   * 控制台 send 内联自愈 / 手动连接 (三者都是显式发起, 连回即顶掉手机, 符合预期)。
+   * 服务端 fatal 踢线 (顶号/会话失效) 后的分类处理:
+   *
+   * 1. 刚发起 connect 就被踢 (宽限期内): 存储凭据已失效 → serverSideRefresh
+   *    续期换新凭据重连一次。手动连接 / 定时任务 / 启动重连都走这条自愈路径;
+   *    冷却期内不重复续期 (新凭据仍被踢 = 刷新源也失效), 避免无限循环。
+   * 2. 空闲连接被踢 (顶号): 让位 —— 不自动重连/续期 (续期会从手机手里抢回
+   *    会话, 形成互踢), 仅广播 token.yielded 供前端提示。
+   *
+   * 恢复途径 (显式发起, 连回即顶掉手机, 符合预期): 定时任务 ensureConnection /
+   * 控制台 send 内联自愈 / 手动连接 (手动连接经由路径 1 自动换新凭据)。
    */
   private handleFatalClose(tokenId: string): void {
-    log.warn({ tokenId }, 'token 已让位 (服务端 fatal 踢线), 等待定时任务或手动连接');
+    const now = Date.now();
+    const sinceConnect = now - (this.lastConnectAt.get(tokenId) ?? 0);
+    const sinceRefresh = now - (this.lastFatalRefreshAt.get(tokenId) ?? 0);
+    if (sinceConnect < FATAL_CONNECT_GRACE_MS && sinceRefresh > FATAL_REFRESH_COOLDOWN_MS) {
+      this.lastFatalRefreshAt.set(tokenId, now);
+      log.warn({ tokenId }, 'connect 后立即被 fatal 踢: 凭据已失效, 自动续期后重连');
+      void this.serverSideRefresh(tokenId);
+      return;
+    }
+    log.warn({ tokenId }, 'token 已让位 (空闲中被服务端 fatal 踢线), 等待定时任务或手动连接');
     bus.emit('event', { type: 'token.yielded', tokenId, reason: 'server_fatal_kick' });
   }
 
