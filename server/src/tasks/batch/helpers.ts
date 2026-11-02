@@ -59,7 +59,6 @@ export function defaultBatchSettings(): Record<string, unknown> {
     defaultFishType: 1,
     receiverId: '',
     password: '',
-    useGoldRefreshFallback: false,
     tokenListColumns: 2,
     commandDelay: 500,
     taskDelay: 500,
@@ -68,15 +67,9 @@ export function defaultBatchSettings(): Record<string, unknown> {
     refreshDelay: 500,
     longDelay: 1000,
     maxActive: 2,
-    carMinColor: 4,
     connectionTimeout: 10000,
     reconnectDelay: 1000,
     maxLogEntries: 1000,
-    smartDepartureGoldThreshold: 0,
-    smartDepartureRecruitThreshold: 0,
-    smartDepartureJadeThreshold: 0,
-    smartDepartureTicketThreshold: 0,
-    smartDepartureMatchAll: false,
     dreamPurchaseList: [],
   };
 }

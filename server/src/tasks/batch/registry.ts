@@ -3,7 +3,6 @@ import { createTasksBottle } from './tasksBottle.js';
 import { createTasksItem } from './tasksItem.js';
 import { createTasksHangUp } from './tasksHangUp.js';
 import { createTasksTower } from './tasksTower.js';
-import { createTasksCar } from './tasksCar.js';
 import { createTasksDungeon } from './tasksDungeon.js';
 import { createTasksArena } from './tasksArena.js';
 import { createTasksStore } from './tasksStore.js';
@@ -20,7 +19,6 @@ export async function dispatchSelectedTasks(ctx: BatchContext, selectedTasks: st
     hangUp: createTasksHangUp(ctx),
     bottle: createTasksBottle(ctx),
     tower: createTasksTower(ctx),
-    car: createTasksCar(ctx),
     dungeon: createTasksDungeon(ctx),
     arena: createTasksArena(ctx),
     store: createTasksStore(ctx),
@@ -52,12 +50,7 @@ export async function dispatchSelectedTasks(ctx: BatchContext, selectedTasks: st
     skinChallenge: factories.tower.skinChallenge,
     batchUseItems: factories.tower.batchUseItems,
     batchMergeItems: factories.tower.batchMergeItems,
-    // car
-    batchSmartSendCar: factories.car.batchSmartSendCar,
-    batchClaimCars: factories.car.batchClaimCars,
     // dungeon
-    batchbaoku13: factories.dungeon.batchbaoku13,
-    batchbaoku45: factories.dungeon.batchbaoku45,
     batchmengjing: factories.dungeon.batchmengjing,
     batchBuyDreamItems: factories.dungeon.batchBuyDreamItems,
     // arena

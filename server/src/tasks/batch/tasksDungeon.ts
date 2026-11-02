@@ -2,58 +2,9 @@ import { BatchContext } from './context.js';
 import { isDungeonOpen, merchantConfig } from './dreamConstants.js';
 
 /**
- * 宝库、梦境类任务（单账号版）
+ * 梦境类任务（单账号版）
  */
 export function createTasksDungeon(ctx: BatchContext) {
-  const batchbaoku13 = async (): Promise<void> => {
-    if (ctx.shouldStop) return;
-    try {
-      ctx.log('info', `=== 开始一键宝库: ${ctx.tokenId} ===`);
-
-      const bosstowerinfo = await ctx.send("bosstower_getinfo", {}, 8000);
-      const towerId = (bosstowerinfo as any).bossTower.towerId;
-
-      if (towerId >= 1 && towerId <= 3) {
-        for (let i = 0; i < 2; i++) {
-          if (ctx.shouldStop) break;
-          await ctx.send("bosstower_startboss", {}, 8000);
-          await ctx.sleep(500);
-        }
-        for (let i = 0; i < 9; i++) {
-          if (ctx.shouldStop) break;
-          await ctx.send("bosstower_startbox", {}, 8000);
-          await ctx.sleep(500);
-        }
-      }
-      ctx.log('success', `=== ${ctx.tokenId} 宝库战斗已完成，请上线手动领取奖励 ===`);
-    } catch (error) {
-      ctx.log('error', `宝库战斗失败: ${(error as Error).message || "未知错误"}`);
-      throw error;
-    }
-  };
-
-  const batchbaoku45 = async (): Promise<void> => {
-    if (ctx.shouldStop) return;
-    try {
-      ctx.log('info', `=== 开始一键宝库: ${ctx.tokenId} ===`);
-
-      const bosstowerinfo = await ctx.send("bosstower_getinfo", {}, 8000);
-      const towerId = (bosstowerinfo as any).bossTower.towerId;
-
-      if (towerId >= 4 && towerId <= 5) {
-        for (let i = 0; i < 2; i++) {
-          if (ctx.shouldStop) break;
-          await ctx.send("bosstower_startboss", {}, 8000);
-          await ctx.sleep(500);
-        }
-      }
-      ctx.log('success', `=== ${ctx.tokenId} 宝库战斗已完成 ===`);
-    } catch (error) {
-      ctx.log('error', `宝库战斗失败: ${(error as Error).message || "未知错误"}`);
-      throw error;
-    }
-  };
-
   const batchmengjing = async (): Promise<void> => {
     if (ctx.shouldStop) return;
     try {
@@ -156,8 +107,6 @@ export function createTasksDungeon(ctx: BatchContext) {
   };
 
   return {
-    batchbaoku13,
-    batchbaoku45,
     batchmengjing,
     batchBuyDreamItems,
   };
