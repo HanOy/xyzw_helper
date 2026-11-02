@@ -95,7 +95,7 @@ export const taskColumns = [
     title: "选中账号",
     key: "selectedTokens",
     width: 150,
-    render: (row) => `${row.selectedTokens.length} 个`,
+    render: (row) => `${row.selectedTokens?.length ?? 0} 个`,
   },
   {
     title: "选中任务",

@@ -111,7 +111,7 @@ export const addTaskSaveLog = (task, isNew, addLog) => {
   });
   addLog({
     time: new Date().toLocaleTimeString(),
-    message: `选中账号: ${task.selectedTokens.length} 个`,
+    message: `选中账号: ${task.selectedTokens?.length ?? 0} 个`,
     type: "info",
   });
   addLog({
